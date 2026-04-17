@@ -1,52 +1,25 @@
 # reporting-web
 
-Scaffolding inicial del frontend para un sistema de reporting usando **React + TypeScript + Vite**.
+Frontend base con **React + TypeScript + Vite**.
 
-## Qué incluye esta primera fase
+## Requisitos
 
-- Router base con rutas públicas y privadas.
-- Layout principal con navegación lateral mínima.
-- Páginas placeholder:
-  - Login
-  - Dashboard
-  - Usuarios (ABM inicial)
-  - Reportes
-- Cliente API centralizado con Axios.
-- Estructura de carpetas simple y mantenible.
+- Node.js 20+
+- Backend `reporting-api` corriendo en `http://localhost:5000`
 
-## Stack
+## Variables de entorno
 
-- React
-- TypeScript
-- Vite
-- React Router
-- Axios
+Copiar archivo de ejemplo:
 
-## Estructura
-
-```text
-reporting-web/
-├─ src/
-│  ├─ api/
-│  ├─ components/
-│  ├─ hooks/
-│  ├─ layouts/
-│  ├─ pages/
-│  ├─ routes/
-│  ├─ types/
-│  ├─ utils/
-│  ├─ main.tsx
-│  └─ styles.css
-├─ .env.example
-├─ index.html
-├─ package.json
-├─ tsconfig.app.json
-├─ tsconfig.json
-├─ tsconfig.node.json
-└─ vite.config.ts
+```bash
+cp .env.example .env
 ```
 
-## Cómo levantar el proyecto
+Variable usada:
+
+- `VITE_API_BASE_URL` (por defecto `http://localhost:5000/api`)
+
+## Levantar frontend
 
 1. Instalar dependencias:
 
@@ -54,32 +27,26 @@ reporting-web/
 npm install
 ```
 
-2. Crear archivo `.env` a partir de `.env.example`:
-
-```bash
-cp .env.example .env
-```
-
-3. Ejecutar entorno de desarrollo:
+2. Ejecutar entorno local:
 
 ```bash
 npm run dev
 ```
 
-4. Compilar para producción:
+Frontend disponible en `http://localhost:5173`.
+
+## Verificar consumo de `/health`
+
+Con backend levantado, al abrir Dashboard el frontend hace `GET /health` usando `VITE_API_BASE_URL`.
+
+También se puede validar desde terminal:
 
 ```bash
-npm run build
+curl http://localhost:5173
 ```
 
-## Variables de entorno
+Y en navegador (Network tab) debe verse request a:
 
-- `VITE_API_BASE_URL`: URL base del backend.
+- `http://localhost:5000/api/health`
 
-## Qué faltaría en próximas iteraciones
-
-- Integrar autenticación real con backend.
-- Implementar lógica real de ABM de usuarios.
-- Implementar listado real de reportes con datos de API.
-- Agregar manejo de errores y estados de carga globales.
-- Definir permisos más granulares por rol.
+Si responde OK, en pantalla aparece estado del backend (`reporting-api - ok`).
