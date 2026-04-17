@@ -26,8 +26,9 @@ def upgrade():
         sa.Column("activo", sa.Boolean(), nullable=False),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.PrimaryKeyConstraint("id"),
-        sa.UniqueConstraint("codigo"),
+        sa.UniqueConstraint("codigo", name="uq_reportes_codigo"),
     )
+    op.create_index("ix_reportes_activo", "reportes", ["activo"], unique=False)
 
     op.create_table(
         "roles",
@@ -36,7 +37,7 @@ def upgrade():
         sa.Column("descripcion", sa.String(length=255), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.PrimaryKeyConstraint("id"),
-        sa.UniqueConstraint("nombre"),
+        sa.UniqueConstraint("nombre", name="uq_roles_nombre"),
     )
 
     op.create_table(
@@ -49,8 +50,9 @@ def upgrade():
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
         sa.PrimaryKeyConstraint("id"),
+        sa.UniqueConstraint("email", name="uq_usuarios_email"),
     )
-    op.create_index(op.f("ix_usuarios_email"), "usuarios", ["email"], unique=True)
+    op.create_index("ix_usuarios_activo", "usuarios", ["activo"], unique=False)
 
     op.create_table(
         "auditorias_consultas_reportes",
@@ -67,6 +69,8 @@ def upgrade():
     )
     op.create_index(op.f("ix_auditorias_consultas_reportes_reporte_id"), "auditorias_consultas_reportes", ["reporte_id"], unique=False)
     op.create_index(op.f("ix_auditorias_consultas_reportes_usuario_id"), "auditorias_consultas_reportes", ["usuario_id"], unique=False)
+    op.create_index("ix_auditorias_consultas_reportes_fecha_consulta", "auditorias_consultas_reportes", ["fecha_consulta"], unique=False)
+    op.create_index("ix_auditorias_consultas_reportes_resultado_ok", "auditorias_consultas_reportes", ["resultado_ok"], unique=False)
 
     op.create_table(
         "ejecuciones_importacion",
@@ -78,9 +82,13 @@ def upgrade():
         sa.Column("observaciones", sa.Text(), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("created_by_user_id", sa.Integer(), nullable=True),
+        sa.CheckConstraint("fecha_hasta >= fecha_desde", name="ck_ejecuciones_importacion_rango_fechas"),
         sa.ForeignKeyConstraint(["created_by_user_id"], ["usuarios.id"]),
         sa.PrimaryKeyConstraint("id"),
     )
+    op.create_index("ix_ejecuciones_importacion_created_by_user_id", "ejecuciones_importacion", ["created_by_user_id"], unique=False)
+    op.create_index("ix_ejecuciones_importacion_estado", "ejecuciones_importacion", ["estado"], unique=False)
+    op.create_index("ix_ejecuciones_importacion_origen", "ejecuciones_importacion", ["origen"], unique=False)
 
     op.create_table(
         "roles_reportes_permisos",
@@ -91,6 +99,7 @@ def upgrade():
         sa.ForeignKeyConstraint(["reporte_id"], ["reportes.id"]),
         sa.ForeignKeyConstraint(["rol_id"], ["roles.id"]),
         sa.PrimaryKeyConstraint("id"),
+        sa.UniqueConstraint("rol_id", "reporte_id", name="uq_roles_reportes_permisos_rol_reporte"),
     )
     op.create_index(op.f("ix_roles_reportes_permisos_reporte_id"), "roles_reportes_permisos", ["reporte_id"], unique=False)
     op.create_index(op.f("ix_roles_reportes_permisos_rol_id"), "roles_reportes_permisos", ["rol_id"], unique=False)
@@ -103,6 +112,7 @@ def upgrade():
         sa.ForeignKeyConstraint(["rol_id"], ["roles.id"]),
         sa.ForeignKeyConstraint(["usuario_id"], ["usuarios.id"]),
         sa.PrimaryKeyConstraint("id"),
+        sa.UniqueConstraint("usuario_id", "rol_id", name="uq_usuarios_roles_usuario_rol"),
     )
     op.create_index(op.f("ix_usuarios_roles_rol_id"), "usuarios_roles", ["rol_id"], unique=False)
     op.create_index(op.f("ix_usuarios_roles_usuario_id"), "usuarios_roles", ["usuario_id"], unique=False)
@@ -117,14 +127,20 @@ def downgrade():
     op.drop_index(op.f("ix_roles_reportes_permisos_reporte_id"), table_name="roles_reportes_permisos")
     op.drop_table("roles_reportes_permisos")
 
+    op.drop_index("ix_ejecuciones_importacion_origen", table_name="ejecuciones_importacion")
+    op.drop_index("ix_ejecuciones_importacion_estado", table_name="ejecuciones_importacion")
+    op.drop_index("ix_ejecuciones_importacion_created_by_user_id", table_name="ejecuciones_importacion")
     op.drop_table("ejecuciones_importacion")
 
+    op.drop_index("ix_auditorias_consultas_reportes_resultado_ok", table_name="auditorias_consultas_reportes")
+    op.drop_index("ix_auditorias_consultas_reportes_fecha_consulta", table_name="auditorias_consultas_reportes")
     op.drop_index(op.f("ix_auditorias_consultas_reportes_usuario_id"), table_name="auditorias_consultas_reportes")
     op.drop_index(op.f("ix_auditorias_consultas_reportes_reporte_id"), table_name="auditorias_consultas_reportes")
     op.drop_table("auditorias_consultas_reportes")
 
-    op.drop_index(op.f("ix_usuarios_email"), table_name="usuarios")
+    op.drop_index("ix_usuarios_activo", table_name="usuarios")
     op.drop_table("usuarios")
 
     op.drop_table("roles")
+    op.drop_index("ix_reportes_activo", table_name="reportes")
     op.drop_table("reportes")
