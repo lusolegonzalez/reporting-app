@@ -13,7 +13,11 @@ class BaseConfig:
         "postgresql+psycopg2://postgres:postgres@localhost:5432/reporting_api",
     )
     SQLALCHEMY_TRACK_MODIFICATIONS = False
-    CORS_ORIGINS = [origin.strip() for origin in os.getenv("CORS_ORIGINS", "http://localhost:3000").split(",")]
+    CORS_ORIGINS = [
+        origin.strip()
+        for origin in os.getenv("CORS_ORIGINS", "http://localhost:5173,http://localhost:3000").split(",")
+        if origin.strip()
+    ]
 
 
 class DevelopmentConfig(BaseConfig):

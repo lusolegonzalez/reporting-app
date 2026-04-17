@@ -1,58 +1,43 @@
 # reporting-api
 
-Scaffolding inicial del backend de reporting usando **Python 3.12 + Flask**.
+Backend base de reporting con **Flask + PostgreSQL**.
 
-## Alcance de esta etapa
+## Objetivo de esta base
 
-Incluye:
-
-- app factory
-- configuración por ambiente con variables de entorno
-- conexión a base de datos (PostgreSQL por defecto)
-- modelos iniciales de usuarios, roles, reportes, auditoría e importaciones
-- migración inicial
-- endpoints placeholder para health, auth, usuarios, roles y reportes
-- CORS para frontend local
-
-No incluye todavía:
-
-- lógica específica de DDJJ
-- integración real con legacy
-- exportaciones
-- permisos complejos
-- reglas avanzadas de negocio
-
-## Estructura
-
-```text
-reporting-api/
-├── app/
-│   ├── __init__.py
-│   ├── config.py
-│   ├── extensions.py
-│   ├── models/
-│   ├── routes/
-│   ├── services/
-│   ├── schemas/
-│   └── utils/
-├── migrations/
-├── run.py
-├── .env.example
-├── requirements.txt
-└── README.md
-```
+- Levantar API Flask localmente.
+- Conectar contra PostgreSQL por variables de entorno.
+- Aplicar migración inicial con Flask-Migrate.
+- Exponer endpoint de salud `GET /api/health`.
+- Habilitar CORS para frontend local (`http://localhost:5173` por defecto).
 
 ## Requisitos
 
-- Python 3.12
-- PostgreSQL
+- Python 3.10+ (recomendado 3.12)
+- PostgreSQL 14+ ejecutándose en local
 
-## Puesta en marcha
+## Variables de entorno
+
+Copiar el archivo de ejemplo:
+
+```bash
+cp .env.example .env
+```
+
+Variables usadas:
+
+- `DATABASE_URL` (obligatoria):
+  - ejemplo: `postgresql+psycopg2://postgres:postgres@localhost:5432/reporting_api`
+- `CORS_ORIGINS`:
+  - por defecto: `http://localhost:5173,http://localhost:3000`
+- `SECRET_KEY`
+- `JWT_SECRET_KEY`
+
+## Levantar backend paso a paso
 
 1. Crear y activar entorno virtual:
 
 ```bash
-python3.12 -m venv .venv
+python -m venv .venv
 source .venv/bin/activate
 ```
 
@@ -62,31 +47,49 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-3. Configurar variables de entorno:
-
-```bash
-cp .env.example .env
-```
-
-4. Crear base de datos (ejemplo local):
+3. Crear base de datos en PostgreSQL:
 
 ```sql
 CREATE DATABASE reporting_api;
 ```
 
-5. Ejecutar migraciones:
+4. Ejecutar migración inicial:
 
 ```bash
 flask --app run.py db upgrade
 ```
 
-6. Levantar API:
+5. Levantar servidor Flask:
 
 ```bash
 python run.py
 ```
 
-## Endpoints placeholder iniciales
+La API queda disponible en `http://localhost:5000`.
+
+## Verificaciones rápidas
+
+### Health endpoint
+
+```bash
+curl http://localhost:5000/api/health
+```
+
+Respuesta esperada:
+
+```json
+{"service":"reporting-api","status":"ok"}
+```
+
+### Verificar CORS para frontend local
+
+```bash
+curl -i -H "Origin: http://localhost:5173" http://localhost:5000/api/health
+```
+
+Esperado en headers: `Access-Control-Allow-Origin: http://localhost:5173`
+
+## Endpoints placeholder
 
 - `GET /api/health`
 - `POST /api/auth/login`
@@ -95,12 +98,3 @@ python run.py
 - `GET /api/roles`
 - `GET /api/reports`
 - `GET /api/reports/<report_id>`
-
-## Próximos pasos recomendados
-
-1. Implementar login real (`JWT`) con hash de password y refresh tokens.
-2. Completar ABM de usuarios con validaciones y paginación.
-3. Agregar ABM de roles y asignación de reportes por rol.
-4. Implementar autorización simple por claims/roles.
-5. Crear capa de servicios para conexión a base intermedia de reporting.
-6. Agregar versionado de API y manejo uniforme de errores.
