@@ -4,8 +4,10 @@ import { DashboardPage } from '@/pages/DashboardPage';
 import { LoginPage } from '@/pages/LoginPage';
 import { NotFoundPage } from '@/pages/NotFoundPage';
 import { ReportsPage } from '@/pages/ReportsPage';
-import { RolesPage } from '@/pages/RolesPage';
-import { UsersPage } from '@/pages/UsersPage';
+import { RoleFormPage } from '@/pages/RoleFormPage';
+import { RolesListPage } from '@/pages/RolesListPage';
+import { UserFormPage } from '@/pages/UserFormPage';
+import { UsersListPage } from '@/pages/UsersListPage';
 import { PrivateRoute } from './PrivateRoute';
 
 export const router = createBrowserRouter([
@@ -21,8 +23,13 @@ export const router = createBrowserRouter([
         children: [
           { index: true, element: <Navigate to="/dashboard" replace /> },
           { path: '/dashboard', element: <DashboardPage /> },
-          { path: '/users', element: <UsersPage /> },
-          { path: '/roles', element: <RolesPage /> },
+          { path: '/users', element: <Navigate to="/usuarios" replace /> },
+          { path: '/usuarios', element: <UsersListPage /> },
+          { path: '/usuarios/nuevo', element: <UserFormPage /> },
+          { path: '/usuarios/:id/editar', element: <UserFormPage /> },
+          { path: '/roles', element: <RolesListPage /> },
+          { path: '/roles/nuevo', element: <RoleFormPage /> },
+          { path: '/roles/:id/editar', element: <RoleFormPage /> },
           { path: '/reports', element: <ReportsPage /> },
         ],
       },

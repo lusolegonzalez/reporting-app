@@ -109,10 +109,10 @@ export const ReportsPage = () => {
   return (
     <section>
       <PageHeader title="Reportes" subtitle="CRUD básico + visibilidad por rol + reportes visibles del usuario." />
-      {error && <p style={{ color: '#b91c1c' }}>{error}</p>}
+      {error && <p className="message error">{error}</p>}
 
-      <div className="card" style={{ marginBottom: '1rem' }}>
-        <h3 style={{ marginTop: 0 }}>Mis reportes visibles</h3>
+      <div className="card section-block">
+        <h3>Mis reportes visibles</h3>
         <ul>
           {visibleReports.map((report) => (
             <li key={report.id}>
@@ -123,9 +123,9 @@ export const ReportsPage = () => {
         </ul>
       </div>
 
-      <div className="card" style={{ marginBottom: '1rem' }}>
-        <h3 style={{ marginTop: 0 }}>Crear reporte</h3>
-        <div style={{ display: 'grid', gap: '0.5rem', gridTemplateColumns: '1fr 2fr 2fr auto' }}>
+      <div className="card section-block">
+        <h3>Crear reporte</h3>
+        <div className="inline-form-grid">
           <input value={newReport.codigo} onChange={(e) => setNewReport((v) => ({ ...v, codigo: e.target.value }))} placeholder="Código" />
           <input value={newReport.nombre} onChange={(e) => setNewReport((v) => ({ ...v, nombre: e.target.value }))} placeholder="Nombre" />
           <input
@@ -138,8 +138,8 @@ export const ReportsPage = () => {
       </div>
 
       <div className="card">
-        <h3 style={{ marginTop: 0 }}>Editar reporte y visibilidad</h3>
-        <div style={{ display: 'grid', gap: '0.5rem', gridTemplateColumns: '240px 1fr', alignItems: 'start' }}>
+        <h3>Editar reporte y visibilidad</h3>
+        <div className="editor-grid">
           <select
             size={8}
             value={selectedReportId ?? ''}
@@ -162,7 +162,7 @@ export const ReportsPage = () => {
           </select>
 
           {selectedReport && (
-            <div style={{ display: 'grid', gap: '0.5rem' }}>
+            <div className="form-grid">
               <input value={editForm.codigo} onChange={(e) => setEditForm((v) => ({ ...v, codigo: e.target.value }))} placeholder="Código" />
               <input value={editForm.nombre} onChange={(e) => setEditForm((v) => ({ ...v, nombre: e.target.value }))} placeholder="Nombre" />
               <input
@@ -181,7 +181,7 @@ export const ReportsPage = () => {
               </label>
 
               <strong>Visibilidad por rol</strong>
-              <div style={{ display: 'grid', gap: '0.3rem' }}>
+              <div className="checkbox-grid">
                 {roles.map((role) => {
                   const current = visibility.find((item) => item.role_id === role.id);
                   return (

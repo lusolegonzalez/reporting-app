@@ -35,8 +35,8 @@ export const LoginPage = () => {
   return (
     <section className="login-container">
       <div className="login-box">
-        <h1 style={{ marginTop: 0 }}>Login</h1>
-        <p style={{ color: '#6b7280' }}>Ingresá con el usuario de prueba para comenzar.</p>
+        <h1>Login</h1>
+        <p className="login-subtitle">Ingresá con el usuario de prueba para comenzar.</p>
 
         <form onSubmit={handleSubmit}>
           <input type="email" placeholder="Email" value={email} onChange={(event) => setEmail(event.target.value)} required />
@@ -52,7 +52,7 @@ export const LoginPage = () => {
           </button>
         </form>
 
-        {error && <p style={{ color: '#b91c1c', marginBottom: 0 }}>{error}</p>}
+        {error && <p className="message error">{error}</p>}
       </div>
     </section>
   );
