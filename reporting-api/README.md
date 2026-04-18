@@ -93,8 +93,24 @@ Esperado en headers: `Access-Control-Allow-Origin: http://localhost:5173`
 
 - `GET /api/health`
 - `POST /api/auth/login`
+- `GET /api/auth/me`
 - `GET /api/users`
 - `POST /api/users`
 - `GET /api/roles`
 - `GET /api/reports`
 - `GET /api/reports/<report_id>`
+
+
+## Seed inicial de autenticación
+
+Después de correr migraciones, crear rol y usuario admin inicial:
+
+```bash
+flask --app run.py seed-initial-auth
+```
+
+Credenciales del usuario de prueba:
+
+- email: `admin@reporting.local`
+- password: `Admin123*`
+
