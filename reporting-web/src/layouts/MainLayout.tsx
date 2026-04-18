@@ -6,6 +6,7 @@ import type { AuthUser } from '@/types/auth';
 const navItems = [
   { to: '/dashboard', label: 'Dashboard' },
   { to: '/users', label: 'Usuarios' },
+  { to: '/roles', label: 'Roles/Permisos' },
   { to: '/reports', label: 'Reportes' },
 ];
 

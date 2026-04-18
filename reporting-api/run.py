@@ -2,7 +2,7 @@ from flask.cli import with_appcontext
 
 from app import create_app
 from app.extensions import db
-from app.models import Rol, Usuario, UsuarioRol
+from app.models import Reporte, Rol, RolReportePermiso, Usuario, UsuarioRol
 
 app = create_app()
 
@@ -31,8 +31,43 @@ def seed_initial_auth() -> None:
     if relation_exists is None:
         db.session.add(UsuarioRol(usuario_id=admin_user.id, rol_id=admin_role.id))
 
+    base_reports = [
+        {
+            "codigo": "REP_RESUMEN",
+            "nombre": "Resumen General",
+            "descripcion": "Reporte base de ejemplo para dashboard inicial.",
+        },
+        {
+            "codigo": "REP_DETALLE",
+            "nombre": "Detalle Operativo",
+            "descripcion": "Reporte base de ejemplo con mayor detalle.",
+        },
+    ]
+
+    for base_report in base_reports:
+        report = Reporte.query.filter_by(codigo=base_report["codigo"]).first()
+        if report is None:
+            report = Reporte(
+                codigo=base_report["codigo"],
+                nombre=base_report["nombre"],
+                descripcion=base_report["descripcion"],
+                activo=True,
+            )
+            db.session.add(report)
+            db.session.flush()
+        else:
+            report.nombre = base_report["nombre"]
+            report.descripcion = base_report["descripcion"]
+            report.activo = True
+
+        permission = RolReportePermiso.query.filter_by(rol_id=admin_role.id, reporte_id=report.id).first()
+        if permission is None:
+            db.session.add(RolReportePermiso(rol_id=admin_role.id, reporte_id=report.id, puede_ver=True))
+        else:
+            permission.puede_ver = True
+
     db.session.commit()
-    print("Seed de autenticación inicial aplicado: ADMIN + admin@reporting.local")
+    print("Seed inicial aplicado: ADMIN + admin@reporting.local + reportes base")
 
 
 if __name__ == "__main__":
