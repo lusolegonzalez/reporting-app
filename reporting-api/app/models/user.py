@@ -1,5 +1,7 @@
 from datetime import datetime, timezone
 
+from werkzeug.security import check_password_hash, generate_password_hash
+
 from app.extensions import db
 
 
@@ -26,6 +28,24 @@ class Usuario(db.Model):
     roles = db.relationship("UsuarioRol", back_populates="usuario", cascade="all, delete-orphan")
     auditorias_consultas = db.relationship("AuditoriaConsultaReporte", back_populates="usuario")
     ejecuciones_importacion_creadas = db.relationship("EjecucionImportacion", back_populates="created_by_user")
+
+    def set_password(self, raw_password: str) -> None:
+        self.password_hash = generate_password_hash(raw_password)
+
+    def check_password(self, raw_password: str) -> bool:
+        return check_password_hash(self.password_hash, raw_password)
+
+    @property
+    def role_names(self) -> list[str]:
+        return [usuario_rol.rol.nombre for usuario_rol in self.roles if usuario_rol.rol is not None]
+
+    def to_auth_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "nombre": self.nombre,
+            "email": self.email,
+            "roles": self.role_names,
+        }
 
 
 class UsuarioRol(db.Model):
