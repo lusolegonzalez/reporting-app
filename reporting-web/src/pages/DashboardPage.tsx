@@ -32,7 +32,7 @@ export const DashboardPage = () => {
 
   return (
     <section>
-      <PageHeader title="Dashboard" subtitle="Vista general del sistema (placeholder)." />
+      <PageHeader title="Dashboard" subtitle="Vista general del sistema." />
       <div className="card">
         {user && (
           <p>
@@ -45,7 +45,7 @@ export const DashboardPage = () => {
             Backend: <strong>{health.service}</strong> - estado <strong>{health.status}</strong>
           </p>
         )}
-        {healthError && <p>{healthError}</p>}
+        {healthError && <p className="message error">{healthError}</p>}
       </div>
     </section>
   );

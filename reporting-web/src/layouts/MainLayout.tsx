@@ -5,8 +5,8 @@ import type { AuthUser } from '@/types/auth';
 
 const navItems = [
   { to: '/dashboard', label: 'Dashboard' },
-  { to: '/users', label: 'Usuarios' },
-  { to: '/roles', label: 'Roles/Permisos' },
+  { to: '/usuarios', label: 'Usuarios' },
+  { to: '/roles', label: 'Roles' },
   { to: '/reports', label: 'Reportes' },
 ];
 
@@ -38,11 +38,11 @@ export const MainLayout = () => {
   return (
     <div className="app-layout">
       <aside className="sidebar">
-        <h1>Reporting Web</h1>
+        <h1>Reporting</h1>
         {user && (
-          <div style={{ marginBottom: '1rem', fontSize: '0.9rem' }}>
+          <div className="sidebar-user">
             <div>{user.nombre}</div>
-            <div style={{ color: '#6b7280' }}>{user.email}</div>
+            <div>{user.email}</div>
           </div>
         )}
         <ul className="nav-list">
@@ -54,7 +54,7 @@ export const MainLayout = () => {
             </li>
           ))}
         </ul>
-        <button onClick={handleLogout} style={{ marginTop: '1rem', width: '100%' }}>
+        <button type="button" className="secondary" onClick={handleLogout}>
           Cerrar sesión
         </button>
       </aside>
