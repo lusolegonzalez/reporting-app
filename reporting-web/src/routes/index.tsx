@@ -4,6 +4,7 @@ import { DashboardPage } from '@/pages/DashboardPage';
 import { LoginPage } from '@/pages/LoginPage';
 import { NotFoundPage } from '@/pages/NotFoundPage';
 import { ReportsPage } from '@/pages/ReportsPage';
+import { RolesPage } from '@/pages/RolesPage';
 import { UsersPage } from '@/pages/UsersPage';
 import { PrivateRoute } from './PrivateRoute';
 
@@ -21,6 +22,7 @@ export const router = createBrowserRouter([
           { index: true, element: <Navigate to="/dashboard" replace /> },
           { path: '/dashboard', element: <DashboardPage /> },
           { path: '/users', element: <UsersPage /> },
+          { path: '/roles', element: <RolesPage /> },
           { path: '/reports', element: <ReportsPage /> },
         ],
       },
