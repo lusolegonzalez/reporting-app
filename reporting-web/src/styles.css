@@ -253,3 +253,76 @@ button:disabled {
   display: flex;
   gap: 0.6rem;
 }
+
+.breadcrumbs {
+  margin-bottom: 0.65rem;
+  color: #4f6274;
+  font-size: 0.9rem;
+  display: flex;
+  gap: 0.35rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.breadcrumbs .separator {
+  margin-left: 0.35rem;
+  opacity: 0.7;
+}
+
+.breadcrumbs strong {
+  color: #114d78;
+  font-weight: 600;
+}
+
+.section-note {
+  margin: 0.35rem 0 0;
+  color: #4f6274;
+}
+
+.report-visibility-card {
+  margin-top: 1rem;
+}
+
+.report-detail-layout {
+  display: grid;
+  gap: 1rem;
+}
+
+.detail-grid {
+  margin: 0;
+  display: grid;
+  gap: 0.75rem;
+}
+
+.detail-grid dt {
+  font-size: 0.85rem;
+  color: #4f6274;
+}
+
+.detail-grid dd {
+  margin: 0.15rem 0 0;
+  font-weight: 600;
+}
+
+.report-placeholder-card {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.placeholder-zone {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.placeholder-panel {
+  border: 1px dashed #b4c4d6;
+  border-radius: 8px;
+  padding: 0.85rem;
+  background: #f9fbfe;
+}
+
+.placeholder-panel p {
+  margin: 0.35rem 0 0;
+  color: #4f6274;
+}
