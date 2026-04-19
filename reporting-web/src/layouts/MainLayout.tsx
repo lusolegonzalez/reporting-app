@@ -7,7 +7,7 @@ const navItems = [
   { to: '/dashboard', label: 'Dashboard' },
   { to: '/usuarios', label: 'Usuarios' },
   { to: '/roles', label: 'Roles' },
-  { to: '/reports', label: 'Reportes' },
+  { to: '/reportes', label: 'Reportes' },
 ];
 
 export const MainLayout = () => {
