@@ -2,9 +2,10 @@ import { useEffect, useState } from 'react';
 import axios from 'axios';
 import { Link } from 'react-router-dom';
 
-import { listReportsRequest } from '@/api';
+import { listReportsRequest, listVisibleReportsRequest } from '@/api';
 import { PageHeader } from '@/components/PageHeader';
 import { ReportsBreadcrumbs } from '@/components/ReportsBreadcrumbs';
+import { storage } from '@/utils/storage';
 import type { ReportItem } from '@/types';
 
 export const ReportsListPage = () => {
@@ -12,12 +13,15 @@ export const ReportsListPage = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const user = storage.getUser();
+  const isAdmin = (user?.roles ?? []).includes('ADMIN');
+
   useEffect(() => {
     const run = async () => {
       try {
         setError(null);
         setIsLoading(true);
-        const data = await listReportsRequest();
+        const data = isAdmin ? await listReportsRequest() : await listVisibleReportsRequest();
         setReports(data);
       } catch (requestError) {
         if (axios.isAxiosError(requestError)) {
@@ -31,18 +35,24 @@ export const ReportsListPage = () => {
     };
 
     void run();
-  }, []);
+  }, [isAdmin]);
 
   return (
     <section>
       <ReportsBreadcrumbs items={[{ label: 'Reportes' }]} />
       <PageHeader
         title="Reportes"
-        subtitle="Listado de reportes configurados en el portal."
+        subtitle={
+          isAdmin
+            ? 'Listado de reportes configurados en el portal.'
+            : 'Reportes disponibles para tu rol.'
+        }
         actions={
-          <Link to="/reportes/nuevo" className="button-link">
-            Nuevo reporte
-          </Link>
+          isAdmin ? (
+            <Link to="/reportes/nuevo" className="button-link">
+              Nuevo reporte
+            </Link>
+          ) : undefined
         }
       />
 
@@ -52,7 +62,9 @@ export const ReportsListPage = () => {
         {isLoading ? (
           <p>Cargando reportes...</p>
         ) : reports.length === 0 ? (
-          <p className="empty-state">Todavía no hay reportes cargados.</p>
+          <p className="empty-state">
+            {isAdmin ? 'Todavía no hay reportes cargados.' : 'No tenés reportes disponibles asignados a tu rol.'}
+          </p>
         ) : (
           <table className="data-table">
             <thead>
@@ -60,7 +72,7 @@ export const ReportsListPage = () => {
                 <th>Nombre</th>
                 <th>Código</th>
                 <th>Descripción</th>
-                <th>Estado</th>
+                {isAdmin && <th>Estado</th>}
                 <th>Acciones</th>
               </tr>
             </thead>
@@ -70,15 +82,17 @@ export const ReportsListPage = () => {
                   <td>{report.nombre}</td>
                   <td>{report.codigo}</td>
                   <td>{report.descripcion || '-'}</td>
-                  <td>{report.activo ? 'Activo' : 'Inactivo'}</td>
+                  {isAdmin && <td>{report.activo ? 'Activo' : 'Inactivo'}</td>}
                   <td>
                     <div className="table-actions">
                       <Link to={`/reportes/${report.id}`} className="button-link secondary">
                         Ver
                       </Link>
-                      <Link to={`/reportes/${report.id}/editar`} className="button-link secondary">
-                        Editar
-                      </Link>
+                      {isAdmin && (
+                        <Link to={`/reportes/${report.id}/editar`} className="button-link secondary">
+                          Editar
+                        </Link>
+                      )}
                     </div>
                   </td>
                 </tr>

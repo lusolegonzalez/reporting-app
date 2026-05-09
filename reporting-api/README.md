@@ -2,6 +2,12 @@
 
 Backend base de reporting con **Flask + PostgreSQL**.
 
+> Documentación profesional integral en [`../docs/`](../docs):
+> [arquitectura](../docs/architecture.md), [seguridad](../docs/security.md),
+> [reporting](../docs/reporting.md), [auditoría](../docs/audit.md),
+> [instalación](../docs/installation.md). Este README mantiene el quickstart
+> técnico.
+
 ## Objetivo de esta base
 
 - Levantar API Flask localmente.
@@ -31,6 +37,22 @@ Variables usadas:
   - por defecto: `http://localhost:5173,http://localhost:3000`
 - `SECRET_KEY`
 - `JWT_SECRET_KEY`
+
+### Origen SQL Server (solo lectura)
+
+Variables usadas por la fuente real `SqlServerTwinsSource` (pyodbc).
+Si `MSSQL_SERVER` queda vacio, la fuente real no se puede instanciar y solo
+queda disponible la fuente `empty` (in-memory) para validar la maquinaria ETL.
+
+- `MSSQL_DRIVER` (default `{ODBC Driver 18 for SQL Server}`)
+- `MSSQL_SERVER`, `MSSQL_PORT` (default `1433`)
+- `MSSQL_DATABASE` (default `TwinsDbQuatro045`)
+- `MSSQL_UID`, `MSSQL_PWD`
+- `MSSQL_ENCRYPT` (default `no`), `MSSQL_TRUST_SERVER_CERTIFICATE` (default `yes`)
+- `MSSQL_LOGIN_TIMEOUT` (default `10`s), `MSSQL_QUERY_TIMEOUT` (default `60`s)
+
+La conexion se abre con `readonly=True` y `ApplicationIntent=ReadOnly`, y
+solo se permiten sentencias `SELECT`/`WITH` (defensa en profundidad).
 
 ## Levantar backend paso a paso
 
@@ -99,6 +121,27 @@ Esperado en headers: `Access-Control-Allow-Origin: http://localhost:5173`
 - `GET /api/roles`
 - `GET /api/reports`
 - `GET /api/reports/<report_id>`
+- `POST /api/etl/run`
+- `GET /api/etl/ejecuciones/<id>`
+
+### `POST /api/etl/run`
+
+Body JSON:
+
+```json
+{
+  "desde": "2026-04-01",
+  "hasta": "2026-04-30",
+  "origen": "TwinsDbQuatro045",
+  "source": "empty"
+}
+```
+
+`source`:
+
+- `empty` (default): fuente in-memory vacia, util para validar la maquinaria
+  del runner sin dependencias externas.
+- `mssql`: usa `SqlServerTwinsSource` con las variables `MSSQL_*`.
 
 
 ## Seed inicial de autenticación

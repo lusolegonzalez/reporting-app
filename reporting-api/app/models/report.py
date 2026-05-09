@@ -31,6 +31,7 @@ class RolReportePermiso(db.Model):
     rol_id = db.Column(db.Integer, db.ForeignKey("roles.id"), nullable=False, index=True)
     reporte_id = db.Column(db.Integer, db.ForeignKey("reportes.id"), nullable=False, index=True)
     puede_ver = db.Column(db.Boolean, nullable=False, default=False)
+    puede_exportar = db.Column(db.Boolean, nullable=False, default=False)
 
     rol = db.relationship("Rol", back_populates="reportes_permisos")
     reporte = db.relationship("Reporte", back_populates="roles_permisos")

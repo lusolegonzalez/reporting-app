@@ -326,3 +326,83 @@ button:disabled {
   margin: 0.35rem 0 0;
   color: #4f6274;
 }
+
+.visibility-table th,
+.visibility-table td {
+  padding: 0.4rem 0.45rem;
+}
+
+.visibility-table td input[type='checkbox'] {
+  margin: 0;
+}
+
+.report-runner {
+  display: grid;
+  gap: 1rem;
+}
+
+.report-parameters-grid {
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  align-items: end;
+}
+
+.report-summary-card .detail-grid {
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+}
+
+.report-section-card {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.report-section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.report-section-header h4 {
+  margin: 0;
+  color: #114d78;
+}
+
+.report-table-wrapper {
+  overflow-x: auto;
+}
+
+.report-alertas {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.4rem;
+}
+
+.report-alerta {
+  padding: 0.55rem 0.7rem;
+  border-radius: 6px;
+  border: 1px solid #c2cfde;
+  background: #f6f9fc;
+}
+
+.report-alerta-info {
+  border-color: #b4c4d6;
+  background: #eef3f9;
+  color: #1f405c;
+}
+
+.report-alerta-warning {
+  border-color: #e5c98a;
+  background: #fdf6e1;
+  color: #6b4d00;
+}
+
+.report-alerta-error {
+  border-color: #e0b0b0;
+  background: #fbecec;
+  color: #8a2222;
+}
+
+

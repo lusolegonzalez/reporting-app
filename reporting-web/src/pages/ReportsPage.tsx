@@ -93,7 +93,11 @@ export const ReportsPage = () => {
       await updateReportRequest(selectedReport.id, editForm);
       await updateReportVisibilityRequest(
         selectedReport.id,
-        visibility.map((item) => ({ role_id: item.role_id, puede_ver: item.puede_ver })),
+        visibility.map((item) => ({
+          role_id: item.role_id,
+          puede_ver: item.puede_ver,
+          puede_exportar: item.puede_exportar,
+        })),
       );
       setError(null);
       await refreshAll();
@@ -181,33 +185,61 @@ export const ReportsPage = () => {
               </label>
 
               <strong>Visibilidad por rol</strong>
-              <div className="checkbox-grid">
-                {roles.map((role) => {
-                  const current = visibility.find((item) => item.role_id === role.id);
-                  return (
-                    <label key={role.id}>
-                      <input
-                        type="checkbox"
-                        checked={current?.puede_ver ?? false}
-                        onChange={(e) => {
-                          const canView = e.target.checked;
-                          setVisibility((currentVisibility) => {
-                            const existing = currentVisibility.find((item) => item.role_id === role.id);
-                            if (!existing) {
-                              return [...currentVisibility, { role_id: role.id, rol: role.nombre, puede_ver: canView }];
-                            }
-                            return currentVisibility.map((item) =>
-                              item.role_id === role.id ? { ...item, puede_ver: canView } : item,
-                            );
-                          });
-                        }}
-                        style={{ marginRight: '0.5rem' }}
-                      />
-                      {role.nombre}
-                    </label>
-                  );
-                })}
-              </div>
+              <table className="data-table visibility-table">
+                <thead>
+                  <tr>
+                    <th>Rol</th>
+                    <th>Puede ver</th>
+                    <th>Puede exportar</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {roles.map((role) => {
+                    const current = visibility.find((item) => item.role_id === role.id);
+                    const canView = current?.puede_ver ?? false;
+                    const canExport = current?.puede_exportar ?? false;
+
+                    const update = (patch: { puede_ver?: boolean; puede_exportar?: boolean }) => {
+                      setVisibility((currentVisibility) => {
+                        const existing = currentVisibility.find((item) => item.role_id === role.id);
+                        const merged = {
+                          role_id: role.id,
+                          rol: role.nombre,
+                          puede_ver: existing?.puede_ver ?? false,
+                          puede_exportar: existing?.puede_exportar ?? false,
+                          ...patch,
+                        };
+                        if (!merged.puede_ver) merged.puede_exportar = false;
+                        if (!existing) return [...currentVisibility, merged];
+                        return currentVisibility.map((item) =>
+                          item.role_id === role.id ? merged : item,
+                        );
+                      });
+                    };
+
+                    return (
+                      <tr key={role.id}>
+                        <td>{role.nombre}</td>
+                        <td>
+                          <input
+                            type="checkbox"
+                            checked={canView}
+                            onChange={(e) => update({ puede_ver: e.target.checked })}
+                          />
+                        </td>
+                        <td>
+                          <input
+                            type="checkbox"
+                            checked={canExport}
+                            disabled={!canView}
+                            onChange={(e) => update({ puede_exportar: e.target.checked })}
+                          />
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
 
               <button onClick={handleSave}>Guardar cambios</button>
             </div>

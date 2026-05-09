@@ -16,6 +16,7 @@ class AuditoriaConsultaReporte(db.Model):
     filtros_json = db.Column(db.Text, nullable=True)
     fecha_consulta = db.Column(db.DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
     resultado_ok = db.Column(db.Boolean, nullable=False, default=True)
+    duracion_ms = db.Column(db.Integer, nullable=True)
     observaciones = db.Column(db.Text, nullable=True)
 
     usuario = db.relationship("Usuario", back_populates="auditorias_consultas")

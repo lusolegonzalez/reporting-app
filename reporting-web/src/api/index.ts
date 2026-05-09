@@ -2,9 +2,11 @@ export { loginRequest, meRequest } from './auth';
 export { apiClient } from './client';
 export {
   createReportRequest,
+  getReportMetadataRequest,
   getReportVisibilityRequest,
   listReportsRequest,
   listVisibleReportsRequest,
+  runReportRequest,
   updateReportRequest,
   updateReportVisibilityRequest,
 } from './reports';

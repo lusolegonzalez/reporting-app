@@ -4,10 +4,10 @@ import { useAuth } from '@/hooks/useAuth';
 import type { AuthUser } from '@/types/auth';
 
 const navItems = [
-  { to: '/dashboard', label: 'Dashboard' },
-  { to: '/usuarios', label: 'Usuarios' },
-  { to: '/roles', label: 'Roles' },
-  { to: '/reportes', label: 'Reportes' },
+  { to: '/dashboard', label: 'Dashboard', adminOnly: false },
+  { to: '/usuarios', label: 'Usuarios', adminOnly: true },
+  { to: '/roles', label: 'Roles', adminOnly: true },
+  { to: '/reportes', label: 'Reportes', adminOnly: false },
 ];
 
 export const MainLayout = () => {
@@ -15,6 +15,7 @@ export const MainLayout = () => {
   const navigate = useNavigate();
 
   const [user, setUser] = useState<AuthUser | null>(currentUser);
+  const isAdmin = (user?.roles ?? []).includes('ADMIN');
 
   useEffect(() => {
     const syncCurrentUser = async () => {
@@ -46,13 +47,16 @@ export const MainLayout = () => {
           </div>
         )}
         <ul className="nav-list">
-          {navItems.map((item) => (
-            <li key={item.to}>
-              <NavLink to={item.to} className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
-                {item.label}
-              </NavLink>
-            </li>
-          ))}
+          {navItems.map((item) => {
+            if (item.adminOnly && !isAdmin) return null;
+            return (
+              <li key={item.to}>
+                <NavLink to={item.to} className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+                  {item.label}
+                </NavLink>
+              </li>
+            );
+          })}
         </ul>
         <button type="button" className="secondary" onClick={handleLogout}>
           Cerrar sesión

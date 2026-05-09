@@ -2,9 +2,11 @@ import { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
 import { Link, useParams } from 'react-router-dom';
 
-import { listReportsRequest } from '@/api';
+import { listReportsRequest, listVisibleReportsRequest } from '@/api';
 import { PageHeader } from '@/components/PageHeader';
+import { ReportRunner } from '@/components/ReportRunner';
 import { ReportsBreadcrumbs } from '@/components/ReportsBreadcrumbs';
+import { storage } from '@/utils/storage';
 import type { ReportItem } from '@/types';
 
 export const ReportDetailPage = () => {
@@ -15,6 +17,9 @@ export const ReportDetailPage = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const user = storage.getUser();
+  const isAdmin = (user?.roles ?? []).includes('ADMIN');
+
   const selectedReport = useMemo(() => reports.find((report) => report.id === reportId) ?? null, [reports, reportId]);
 
   useEffect(() => {
@@ -22,7 +27,7 @@ export const ReportDetailPage = () => {
       try {
         setError(null);
         setIsLoading(true);
-        const data = await listReportsRequest();
+        const data = isAdmin ? await listReportsRequest() : await listVisibleReportsRequest();
         setReports(data);
       } catch (requestError) {
         if (axios.isAxiosError(requestError)) {
@@ -36,7 +41,7 @@ export const ReportDetailPage = () => {
     };
 
     void run();
-  }, []);
+  }, [isAdmin]);
 
   return (
     <section>
@@ -48,9 +53,9 @@ export const ReportDetailPage = () => {
       />
       <PageHeader
         title={selectedReport?.nombre ?? 'Detalle de reporte'}
-        subtitle="Base preparada para incorporar la funcionalidad de reporting en próximas iteraciones."
+        subtitle={selectedReport?.descripcion ?? 'Configurá los parámetros y consultá los resultados.'}
         actions={
-          selectedReport ? (
+          isAdmin && selectedReport ? (
             <Link to={`/reportes/${selectedReport.id}/editar`} className="button-link secondary">
               Editar reporte
             </Link>
@@ -68,46 +73,13 @@ export const ReportDetailPage = () => {
         <div className="card">
           <p className="empty-state">No se encontró el reporte solicitado.</p>
         </div>
+      ) : !selectedReport.activo ? (
+        <div className="card">
+          <p className="empty-state">El reporte se encuentra inactivo.</p>
+        </div>
       ) : (
         <div className="report-detail-layout">
-          <div className="card">
-            <h3>Información general</h3>
-            <dl className="detail-grid">
-              <div>
-                <dt>Nombre</dt>
-                <dd>{selectedReport.nombre}</dd>
-              </div>
-              <div>
-                <dt>Código</dt>
-                <dd>{selectedReport.codigo}</dd>
-              </div>
-              <div>
-                <dt>Estado</dt>
-                <dd>{selectedReport.activo ? 'Activo' : 'Inactivo'}</dd>
-              </div>
-              <div>
-                <dt>Descripción</dt>
-                <dd>{selectedReport.descripcion || '-'}</dd>
-              </div>
-            </dl>
-          </div>
-
-          <div className="card report-placeholder-card">
-            <h3>Módulo funcional en construcción</h3>
-            <p className="section-note">
-              Este espacio está preparado para incorporar filtros, resultados y acciones del reporte real en la próxima etapa.
-            </p>
-            <div className="placeholder-zone">
-              <div className="placeholder-panel">
-                <strong>Filtros</strong>
-                <p>Área reservada para filtros del reporte.</p>
-              </div>
-              <div className="placeholder-panel">
-                <strong>Resultados</strong>
-                <p>Área reservada para la grilla, KPIs o visualizaciones futuras.</p>
-              </div>
-            </div>
-          </div>
+          <ReportRunner codigo={selectedReport.codigo} />
         </div>
       )}
     </section>

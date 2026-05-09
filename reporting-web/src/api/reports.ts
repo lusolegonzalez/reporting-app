@@ -1,5 +1,5 @@
 import { apiClient } from './client';
-import type { ReportItem, ReportVisibility } from '@/types';
+import type { ReportItem, ReportMetadata, ReportResponse, ReportVisibility } from '@/types';
 
 export const listReportsRequest = async (): Promise<ReportItem[]> => {
   const response = await apiClient.get<{ items: ReportItem[] }>('/reports');
@@ -36,7 +36,25 @@ export const getReportVisibilityRequest = async (reportId: number): Promise<Repo
 
 export const updateReportVisibilityRequest = async (
   reportId: number,
-  visibility: Array<{ role_id: number; puede_ver: boolean }>,
+  visibility: Array<{ role_id: number; puede_ver: boolean; puede_exportar: boolean }>,
 ): Promise<void> => {
   await apiClient.put(`/reports/${reportId}/visibility`, { visibility });
+};
+
+export const getReportMetadataRequest = async (codigo: string): Promise<ReportMetadata> => {
+  const response = await apiClient.get<ReportMetadata>(
+    `/reports/by-codigo/${encodeURIComponent(codigo)}/metadata`,
+  );
+  return response.data;
+};
+
+export const runReportRequest = async (
+  codigo: string,
+  payload: { parametros: Record<string, unknown>; formato?: 'json' | 'excel' | 'pdf' },
+): Promise<ReportResponse> => {
+  const response = await apiClient.post<ReportResponse>(
+    `/reports/by-codigo/${encodeURIComponent(codigo)}/run`,
+    { parametros: payload.parametros, formato: payload.formato ?? 'json' },
+  );
+  return response.data;
 };

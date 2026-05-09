@@ -1,9 +1,9 @@
 from flask import Blueprint, jsonify, request
-from flask_jwt_extended import jwt_required
 from sqlalchemy import func
 
 from app.extensions import db
 from app.models import Rol, Usuario, UsuarioRol
+from app.utils.auth import admin_required
 
 
 users_bp = Blueprint("users", __name__)
@@ -20,14 +20,14 @@ def _serialize_user(user: Usuario) -> dict:
 
 
 @users_bp.get("")
-@jwt_required()
+@admin_required
 def list_users():
     users = Usuario.query.order_by(Usuario.id.asc()).all()
     return jsonify({"items": [_serialize_user(user) for user in users]}), 200
 
 
 @users_bp.post("")
-@jwt_required()
+@admin_required
 def create_user():
     payload = request.get_json(silent=True) or {}
 
@@ -51,7 +51,7 @@ def create_user():
 
 
 @users_bp.put("/<int:user_id>")
-@jwt_required()
+@admin_required
 def update_user(user_id: int):
     user = db.session.get(Usuario, user_id)
     if user is None:
@@ -86,7 +86,7 @@ def update_user(user_id: int):
 
 
 @users_bp.put("/<int:user_id>/roles")
-@jwt_required()
+@admin_required
 def assign_user_roles(user_id: int):
     user = db.session.get(Usuario, user_id)
     if user is None:
@@ -122,7 +122,7 @@ def assign_user_roles(user_id: int):
 
 
 @users_bp.get("/<int:user_id>/roles")
-@jwt_required()
+@admin_required
 def get_user_roles(user_id: int):
     user = db.session.get(Usuario, user_id)
     if user is None:

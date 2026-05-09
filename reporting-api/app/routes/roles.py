@@ -1,8 +1,8 @@
 from flask import Blueprint, jsonify, request
-from flask_jwt_extended import jwt_required
 
 from app.extensions import db
 from app.models import Rol
+from app.utils.auth import admin_required
 
 
 roles_bp = Blueprint("roles", __name__)
@@ -17,14 +17,14 @@ def _serialize_role(role: Rol) -> dict:
 
 
 @roles_bp.get("")
-@jwt_required()
+@admin_required
 def list_roles():
     roles = Rol.query.order_by(Rol.id.asc()).all()
     return jsonify({"items": [_serialize_role(role) for role in roles]}), 200
 
 
 @roles_bp.post("")
-@jwt_required()
+@admin_required
 def create_role():
     payload = request.get_json(silent=True) or {}
     nombre = (payload.get("nombre") or "").strip().upper()
@@ -44,7 +44,7 @@ def create_role():
 
 
 @roles_bp.put("/<int:role_id>")
-@jwt_required()
+@admin_required
 def update_role(role_id: int):
     role = db.session.get(Rol, role_id)
     if role is None:

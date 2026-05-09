@@ -3,13 +3,14 @@ from __future__ import annotations
 
 from datetime import date, datetime
 
-from flask import Blueprint, jsonify, request
-from flask_jwt_extended import current_user, jwt_required
+from flask import Blueprint, jsonify, request, current_app
+from flask_jwt_extended import current_user
 
 from app.extensions import db
 from app.models import EjecucionError, EjecucionImportacion, EjecucionTabla
 from app.services.etl.runner import EtlAlreadyRunning, run_etl
-from app.services.etl.sources import InMemoryTwinsSource
+from app.services.etl.sources import InMemoryTwinsSource, SqlServerTwinsSource
+from app.utils.auth import admin_required
 
 etl_bp = Blueprint("etl", __name__)
 
@@ -23,20 +24,36 @@ def _parse_date(raw: str | None) -> date | None:
         return None
 
 
+def _build_source(source_kind: str):
+    """Selecciona el origen a usar para el ETL.
+
+    - "empty"  -> InMemoryTwinsSource() (default; util para validar maquinaria).
+    - "mssql"  -> SqlServerTwinsSource construido desde la config Flask.
+    """
+    kind = (source_kind or "empty").strip().lower()
+    if kind in ("empty", "memory", "in_memory"):
+        return InMemoryTwinsSource()
+    if kind in ("mssql", "sqlserver", "sql_server", "twins"):
+        return SqlServerTwinsSource.from_flask_config(current_app.config)
+    raise ValueError(f"source desconocida: {source_kind!r}")
+
+
 @etl_bp.post("/run")
-@jwt_required()
+@admin_required
 def run():
     payload = request.get_json(silent=True) or {}
     desde = _parse_date(payload.get("desde"))
     hasta = _parse_date(payload.get("hasta"))
     origen = (payload.get("origen") or "TwinsDbQuatro045").strip()
+    source_kind = (payload.get("source") or "empty").strip()
 
     if desde is None or hasta is None:
         return jsonify({"message": "desde/hasta requeridos (YYYY-MM-DD)."}), 400
 
-    # Por ahora la fuente real (pyodbc) no esta cableada; usamos un origen
-    # vacio para validar la maquinaria del runner sin dependencias externas.
-    source = InMemoryTwinsSource()
+    try:
+        source = _build_source(source_kind)
+    except (RuntimeError, ValueError) as exc:
+        return jsonify({"message": str(exc)}), 400
 
     try:
         resumen = run_etl(
@@ -75,7 +92,7 @@ def run():
 
 
 @etl_bp.get("/ejecuciones/<int:ejecucion_id>")
-@jwt_required()
+@admin_required
 def get_ejecucion(ejecucion_id: int):
     ejecucion = db.session.get(EjecucionImportacion, ejecucion_id)
     if ejecucion is None:

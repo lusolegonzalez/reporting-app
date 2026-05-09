@@ -2,6 +2,12 @@
 
 Frontend base con **React + TypeScript + Vite**.
 
+> Documentación integral del sistema en [`../docs/`](../docs)
+> ([arquitectura](../docs/architecture.md), [seguridad](../docs/security.md),
+> [reporting](../docs/reporting.md), [auditoría](../docs/audit.md),
+> [instalación](../docs/installation.md)). Este README mantiene el quickstart
+> del frontend.
+
 ## Requisitos
 
 - Node.js 20+
