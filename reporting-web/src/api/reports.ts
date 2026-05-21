@@ -58,3 +58,39 @@ export const runReportRequest = async (
   );
   return response.data;
 };
+
+/**
+ * Solicita la exportación del reporte en formato binario (Excel o PDF)
+ * y dispara la descarga en el navegador automáticamente.
+ */
+export const exportReportRequest = async (
+  codigo: string,
+  payload: { parametros: Record<string, unknown>; formato: 'excel' | 'pdf' },
+): Promise<void> => {
+  const response = await apiClient.post(
+    `/reports/by-codigo/${encodeURIComponent(codigo)}/run`,
+    { parametros: payload.parametros, formato: payload.formato },
+    { responseType: 'blob' },
+  );
+
+  // Extraer nombre de archivo del header Content-Disposition si está presente
+  const disposition = response.headers['content-disposition'] as string | undefined;
+  const ext = payload.formato === 'excel' ? 'xlsx' : 'pdf';
+  let filename = `reporte.${ext}`;
+  if (disposition) {
+    const match = /filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/.exec(disposition);
+    if (match?.[1]) {
+      filename = match[1].replace(/['"]/g, '').trim();
+    }
+  }
+
+  // Crear enlace temporal y disparar descarga
+  const url = URL.createObjectURL(response.data as Blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+};

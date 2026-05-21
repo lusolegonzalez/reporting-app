@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
 
-import { getReportMetadataRequest, runReportRequest } from '@/api';
+import { getReportMetadataRequest, runReportRequest, exportReportRequest } from '@/api';
 import type {
   ReportAlerta,
   ReportMetadata,
@@ -248,20 +248,26 @@ export const ReportRunner = ({ codigo }: ReportRunnerProps) => {
     setExportNotice(null);
     try {
       const payload = buildPayload(metadata.parametros, values);
-      await runReportRequest(codigo, { parametros: payload, formato });
-      setExportNotice(`Exportación ${formato.toUpperCase()} completada.`);
+      await exportReportRequest(codigo, { parametros: payload, formato });
+      // La descarga se dispara automáticamente dentro de exportReportRequest
     } catch (err) {
+      let message = `No se pudo exportar el reporte a ${formato.toUpperCase()}.`;
       if (axios.isAxiosError(err)) {
-        const status = err.response?.status;
-        const message = err.response?.data?.message;
-        if (status === 501) {
-          setExportNotice(message ?? `La exportación a ${formato.toUpperCase()} aún no está disponible.`);
-        } else {
-          setExportNotice(message ?? `No se pudo exportar el reporte a ${formato.toUpperCase()}.`);
+        const data = err.response?.data;
+        if (data instanceof Blob) {
+          // responseType: 'blob' hace que los errores también lleguen como Blob
+          try {
+            const text = await data.text();
+            const parsed = JSON.parse(text) as { message?: string };
+            message = parsed.message ?? message;
+          } catch {
+            // ignorar error de parseo
+          }
+        } else if (typeof data === 'object' && data !== null) {
+          message = (data as { message?: string }).message ?? message;
         }
-      } else {
-        setExportNotice(`No se pudo exportar el reporte a ${formato.toUpperCase()}.`);
       }
+      setExportNotice(message);
     } finally {
       setExportingFormato(null);
     }

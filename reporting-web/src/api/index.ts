@@ -3,6 +3,7 @@ export { apiClient } from './client';
 export { runEtlRequest } from './etl';
 export {
   createReportRequest,
+  exportReportRequest,
   getReportMetadataRequest,
   getReportVisibilityRequest,
   listReportsRequest,

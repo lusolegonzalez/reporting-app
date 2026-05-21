@@ -1,4 +1,6 @@
-from flask import Blueprint, jsonify, request
+import io
+
+from flask import Blueprint, jsonify, request, send_file
 from flask_jwt_extended import current_user, jwt_required
 
 from app.extensions import db
@@ -368,17 +370,28 @@ def run_report(codigo: str):
     if formato == "json":
         return jsonify(response.to_dict()), 200
 
-    # Exportacion: la generacion de Excel/PDF queda fuera de alcance de esta
-    # iteracion. Devolvemos 501 con la respuesta JSON adjunta para que el
-    # frontend pueda mostrar un aviso claro hasta que se cablee el renderer.
-    return (
-        jsonify(
-            {
-                "message": f"Exportación {formato} aún no implementada.",
-                "report": response.to_dict(),
-            }
-        ),
-        501,
+    # ── Exportación real ────────────────────────────────────────────────────
+    from app.services.reports.exporters import export_to_excel, export_to_pdf, _make_filename
+
+    try:
+        if formato == "excel":
+            file_bytes = export_to_excel(response)
+            filename = _make_filename(response, "xlsx")
+            mimetype = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        else:  # pdf
+            file_bytes = export_to_pdf(response)
+            filename = _make_filename(response, "pdf")
+            mimetype = "application/pdf"
+    except Exception:  # noqa: BLE001
+        return jsonify({"message": f"Error generando exportación {formato}."}), 500
+
+    buf = io.BytesIO(file_bytes)
+    buf.seek(0)
+    return send_file(
+        buf,
+        mimetype=mimetype,
+        as_attachment=True,
+        download_name=filename,
     )
 
 
