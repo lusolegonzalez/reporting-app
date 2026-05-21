@@ -67,6 +67,24 @@ def run():
         return jsonify({"message": str(exc)}), 409
     except ValueError as exc:
         return jsonify({"message": str(exc)}), 400
+    except Exception as exc:  # noqa: BLE001 — frontera HTTP, ver logger.exception
+        current_app.logger.exception(
+            "ETL run failed (origen=%s, source=%s, desde=%s, hasta=%s)",
+            origen, source_kind, desde, hasta,
+        )
+        try:
+            db.session.rollback()
+        except Exception:
+            current_app.logger.exception("Rollback post-error fallo")
+        return (
+            jsonify(
+                {
+                    "message": "No se pudo ejecutar el ETL.",
+                    "detail": f"{type(exc).__name__}: {exc}",
+                }
+            ),
+            500,
+        )
 
     return (
         jsonify(

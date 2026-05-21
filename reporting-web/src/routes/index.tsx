@@ -1,6 +1,7 @@
 import { Navigate, createBrowserRouter } from 'react-router-dom';
 import { MainLayout } from '@/layouts/MainLayout';
 import { DashboardPage } from '@/pages/DashboardPage';
+import { EtlPage } from '@/pages/EtlPage';
 import { LoginPage } from '@/pages/LoginPage';
 import { NotFoundPage } from '@/pages/NotFoundPage';
 import { ReportDetailPage } from '@/pages/ReportDetailPage';
@@ -37,6 +38,7 @@ export const router = createBrowserRouter([
           { path: '/reportes/nuevo', element: <ReportFormPage /> },
           { path: '/reportes/:id/editar', element: <ReportFormPage /> },
           { path: '/reportes/:id', element: <ReportDetailPage /> },
+          { path: '/etl', element: <EtlPage /> },
         ],
       },
     ],

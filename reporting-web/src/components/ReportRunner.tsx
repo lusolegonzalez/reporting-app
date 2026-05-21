@@ -57,20 +57,89 @@ const buildPayload = (
   return payload;
 };
 
+const formatNumber = (value: unknown): string => {
+  if (value === null || value === undefined || value === '') return '-';
+  const num = typeof value === 'number' ? value : Number(value);
+  if (!Number.isFinite(num)) return formatValue(value);
+  return num.toLocaleString('es-AR', { maximumFractionDigits: 3 });
+};
+
+type Tropa = { numero_tropa?: unknown; cabezas?: unknown };
+
+const extractTropas = (totales: Record<string, unknown>): Tropa[] => {
+  const raw = totales['tropas'];
+  if (!Array.isArray(raw)) return [];
+  return raw.filter((t): t is Tropa => typeof t === 'object' && t !== null);
+};
+
+const KPI_KEYS: Array<{ key: string; titulo: string }> = [
+  { key: 'cabezas_faenadas', titulo: 'Cabezas faenadas' },
+  { key: 'cajas', titulo: 'Cajas' },
+  { key: 'kg_neto', titulo: 'Kg. Neto' },
+];
+
+const SectionTotales = ({ totales }: { totales: Record<string, unknown> }) => {
+  const items = KPI_KEYS.filter((k) => totales[k.key] !== undefined && totales[k.key] !== null);
+  if (items.length === 0) return null;
+  return (
+    <ul className="kpi-list report-section-kpis">
+      {items.map((k) => (
+        <li key={k.key}>
+          <strong>{k.titulo}:</strong> {formatNumber(totales[k.key])}
+        </li>
+      ))}
+    </ul>
+  );
+};
+
+const SectionTropas = ({ tropas }: { tropas: Tropa[] }) => {
+  if (tropas.length === 0) return null;
+  return (
+    <div className="report-section-tropas">
+      <h5>Tropas del día</h5>
+      <table className="data-table data-table-compact">
+        <thead>
+          <tr>
+            <th>Número de tropa</th>
+            <th>Cabezas</th>
+          </tr>
+        </thead>
+        <tbody>
+          {tropas.map((t, idx) => (
+            <tr key={idx}>
+              <td>{formatValue(t.numero_tropa)}</td>
+              <td>{formatNumber(t.cabezas)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+};
+
 const AlertaItem = ({ alerta }: { alerta: ReportAlerta }) => (
   <li className={`report-alerta report-alerta-${alerta.nivel}`}>
+    <span className="report-alerta-nivel">{alerta.nivel.toUpperCase()}</span>
     <strong>{alerta.codigo}:</strong> {alerta.mensaje}
   </li>
 );
 
 const SectionTable = ({ section }: { section: ReportSection }) => {
   const tieneFilas = section.filas.length > 0;
+  const tropas = extractTropas(section.totales ?? {});
+  const tieneTotales =
+    section.totales &&
+    KPI_KEYS.some((k) => section.totales[k.key] !== undefined && section.totales[k.key] !== null);
+
   return (
     <div className="card report-section-card">
       <div className="report-section-header">
         <h4>{section.titulo}</h4>
         {!tieneFilas && <span className="section-note">Sin datos para los parámetros indicados.</span>}
       </div>
+
+      {tieneTotales && <SectionTotales totales={section.totales} />}
+
       {tieneFilas && (
         <div className="report-table-wrapper">
           <table className="data-table">
@@ -85,7 +154,9 @@ const SectionTable = ({ section }: { section: ReportSection }) => {
               {section.filas.map((fila, idx) => (
                 <tr key={idx}>
                   {section.columnas.map((col) => (
-                    <td key={col.key}>{formatValue(fila[col.key])}</td>
+                    <td key={col.key}>
+                      {col.tipo === 'number' ? formatNumber(fila[col.key]) : formatValue(fila[col.key])}
+                    </td>
                   ))}
                 </tr>
               ))}
@@ -93,6 +164,8 @@ const SectionTable = ({ section }: { section: ReportSection }) => {
           </table>
         </div>
       )}
+
+      <SectionTropas tropas={tropas} />
     </div>
   );
 };

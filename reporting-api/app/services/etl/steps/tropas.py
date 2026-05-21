@@ -1,9 +1,12 @@
 """Step ETL: tropas y subtropas."""
 from __future__ import annotations
 
+import logging
 import time
 from datetime import date, datetime, timezone
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 from sqlalchemy import text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -61,6 +64,23 @@ class TropasStep:
                 }
             )
         result.filas_leidas = len(filas)
+
+        # Dedup por source_pk: el LEFT JOIN de la cadena hacienda puede devolver
+        # el mismo (ih, sub) para multiples filas de DatosFrigo que comparten Faena.
+        seen_pk: set[str] = set()
+        filas_dedup: list[dict[str, Any]] = []
+        for fila in filas:
+            if fila["source_pk"] not in seen_pk:
+                seen_pk.add(fila["source_pk"])
+                filas_dedup.append(fila)
+        n_dup = len(filas) - len(filas_dedup)
+        if n_dup:
+            result.filas_descartadas += n_dup
+            logger.warning(
+                "[ETL] TropasStep: %d filas duplicadas por source_pk descartadas antes del INSERT",
+                n_dup,
+            )
+        filas = filas_dedup
 
         if filas:
             db.session.execute(StgTwinsTropa.__table__.insert(), filas)

@@ -8,6 +8,7 @@ const navItems = [
   { to: '/usuarios', label: 'Usuarios', adminOnly: true },
   { to: '/roles', label: 'Roles', adminOnly: true },
   { to: '/reportes', label: 'Reportes', adminOnly: false },
+  { to: '/etl', label: 'ETL', adminOnly: true },
 ];
 
 export const MainLayout = () => {

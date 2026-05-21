@@ -1,10 +1,13 @@
 """Step ETL: salidas (lineas de emision)."""
 from __future__ import annotations
 
+import logging
 import time
 from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 from sqlalchemy import text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -70,6 +73,25 @@ class SalidasStep:
                 }
             )
         result.filas_leidas = len(filas)
+
+        # Dedup por source_pk: el LEFT JOIN a Banderitas puede producir N filas
+        # por cada linea de Salida si hay multiples barcodes activos para el mismo
+        # (Identificador_Id, Movimiento_Id). La source_pk no incluye el barcode,
+        # por lo que colisiona. Nos quedamos con la primera fila (primer barcode).
+        seen_pk_s: set[str] = set()
+        filas_dedup_s: list[dict[str, Any]] = []
+        for fila in filas:
+            if fila["source_pk"] not in seen_pk_s:
+                seen_pk_s.add(fila["source_pk"])
+                filas_dedup_s.append(fila)
+        n_dup_s = len(filas) - len(filas_dedup_s)
+        if n_dup_s:
+            result.filas_descartadas += n_dup_s
+            logger.warning(
+                "[ETL] SalidasStep: %d filas duplicadas por source_pk descartadas antes del INSERT",
+                n_dup_s,
+            )
+        filas = filas_dedup_s
 
         if filas:
             db.session.execute(

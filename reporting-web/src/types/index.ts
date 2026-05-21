@@ -10,3 +10,10 @@ export type {
   RoleItem,
   UserItem,
 } from './domain';
+export type {
+  EtlRunRequest,
+  EtlRunResponse,
+  EtlSource,
+  EtlStepError,
+  EtlStepResult,
+} from './etl';

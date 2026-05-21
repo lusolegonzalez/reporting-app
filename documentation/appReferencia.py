@@ -4,9 +4,14 @@ Este proyecto quedó reducido a un único dashboard operativo para facilitarel m
 
 from future import annotations
 
-import osfrom dataclasses import dataclassfrom datetime import date, datetime, timedeltafrom typing import Any
+import osfrom dataclasses 
+import dataclassfrom datetime 
+import date, datetime, timedeltafrom typing 
+import Any
 
-import pyodbcfrom dotenv import load_dotenvfrom flask import Flask, jsonify, render_template, request
+import pyodbcfrom dotenv 
+import load_dotenvfrom flask 
+import Flask, jsonify, render_template, request
 
 load_dotenv()
 
@@ -249,6 +254,7 @@ sql_timeseries_fallback = f"""
 
 with _get_quatro045_connection() as connection:
     cursor = connection.cursor()
+    cursor.execute("SET LOCK_TIMEOUT 60000")  # 60 segundos en milisegundos
     raw_rows = _query_dicts(cursor, sql_rows, (fecha,))
 
     cursor.execute(sql_timeseries, (fecha, fecha))
@@ -352,6 +358,7 @@ sql_fallback = """
 
 with _get_quatro045_connection() as connection:
     cursor = connection.cursor()
+    cursor.execute("SET LOCK_TIMEOUT 60000")  # 60 segundos en milisegundos
     cursor.execute(sql, (fecha, next_day))
     row = cursor.fetchone()
     total_medias = int((row[0] or 0) if row else 0)
@@ -404,6 +411,7 @@ sql_fallback = """
 
 with _get_quatro045_connection() as connection:
     cursor = connection.cursor()
+    cursor.execute("SET LOCK_TIMEOUT 60000")  # 60 segundos en milisegundos
     rows = _query_dicts(cursor, sql, (fecha,))
     if not rows:
         rows = _query_dicts(cursor, sql_fallback, (fecha,))
