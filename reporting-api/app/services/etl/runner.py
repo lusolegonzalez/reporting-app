@@ -8,9 +8,12 @@ materializadas de reporting.
 from __future__ import annotations
 
 import logging
+import threading
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
+from typing import Callable
 
+from flask import Flask, current_app
 from sqlalchemy import text
 
 from app.extensions import db
@@ -61,21 +64,29 @@ def run_etl(
     created_by_user_id: int | None = None,
     steps: list[EtlStep] | None = None,
     refrescar_reporting: bool = True,
+    ejecucion_id: int | None = None,
 ) -> EjecucionResumen:
     if hasta < desde:
         raise ValueError("hasta debe ser >= desde")
 
     pasos = steps if steps is not None else default_steps()
 
-    ejecucion = EjecucionImportacion(
-        origen=origen,
-        fecha_desde=desde,
-        fecha_hasta=hasta,
-        estado="running",
-        created_by_user_id=created_by_user_id,
-    )
-    db.session.add(ejecucion)
-    db.session.commit()
+    if ejecucion_id is not None:
+        ejecucion = db.session.get(EjecucionImportacion, ejecucion_id)
+        if ejecucion is None:
+            raise ValueError(f"EjecucionImportacion id={ejecucion_id} no existe")
+        ejecucion.estado = "running"
+        db.session.commit()
+    else:
+        ejecucion = EjecucionImportacion(
+            origen=origen,
+            fecha_desde=desde,
+            fecha_hasta=hasta,
+            estado="running",
+            created_by_user_id=created_by_user_id,
+        )
+        db.session.add(ejecucion)
+        db.session.commit()
     ejecucion_id = int(ejecucion.id)
 
     lock_acquired = bool(
@@ -92,6 +103,7 @@ def run_etl(
 
     resultados: list[StepResult] = []
     estado_final = "ok"
+    step_fatal_msg: str | None = None
 
     try:
         for step in pasos:
@@ -102,12 +114,14 @@ def run_etl(
                     desde=desde,
                     hasta=hasta,
                 )
-            except Exception as exc:  # step fallido -> registramos y seguimos en partial
+            except Exception as exc:  # step fallido completo -> tratamos como error
                 logger.exception("Step %s fallo", step.nombre)
                 db.session.rollback()
                 resultado = StepResult(tabla_destino=step.tabla_destino)
                 resultado.errores.append((None, f"step_failed: {exc!r}"))
-                estado_final = "partial" if estado_final == "ok" else estado_final
+                estado_final = "error"
+                if step_fatal_msg is None:
+                    step_fatal_msg = f"{step.nombre}: {type(exc).__name__}: {exc}"
 
             db.session.add(
                 EjecucionTabla(
@@ -158,10 +172,16 @@ def run_etl(
             {"k": _ETL_ADVISORY_LOCK_KEY},
         )
         ejecucion.estado = estado_final
-        ejecucion.observaciones = (
-            ejecucion.observaciones
-            or f"Pasos ejecutados: {len(resultados)} | Finalizada {datetime.now(timezone.utc).isoformat()}"
-        )
+        if step_fatal_msg and (
+            not ejecucion.observaciones
+            or "Pasos ejecutados" in (ejecucion.observaciones or "")
+        ):
+            ejecucion.observaciones = f"step_fatal: {step_fatal_msg}"
+        else:
+            ejecucion.observaciones = (
+                ejecucion.observaciones
+                or f"Pasos ejecutados: {len(resultados)} | Finalizada {datetime.now(timezone.utc).isoformat()}"
+            )
         db.session.commit()
 
     return EjecucionResumen(
@@ -169,3 +189,94 @@ def run_etl(
         estado=estado_final,
         pasos=resultados,
     )
+
+
+# ---------------------------------------------------------------------------
+# Ejecucion asincronica (on-demand desde el flujo de reportes)
+# ---------------------------------------------------------------------------
+
+
+def queue_etl_async(
+    *,
+    desde: date,
+    hasta: date,
+    origen: str = "TwinsDbQuatro045",
+    created_by_user_id: int | None = None,
+    source_factory: Callable[[], TwinsSource],
+    app: Flask | None = None,
+) -> int:
+    """Crea la EjecucionImportacion en estado 'queued' y lanza un thread daemon.
+
+    Devuelve `ejecucion_id` inmediatamente. El thread:
+        - construye la TwinsSource (con app context),
+        - llama `run_etl(..., ejecucion_id=...)` reusando el registro creado.
+
+    Si el ETL falla con excepcion no controlada, se marca la ejecucion como
+    'error' con observaciones.
+    """
+    if hasta < desde:
+        raise ValueError("hasta debe ser >= desde")
+
+    flask_app = app if app is not None else current_app._get_current_object()  # type: ignore[attr-defined]
+
+    ejecucion = EjecucionImportacion(
+        origen=origen,
+        fecha_desde=desde,
+        fecha_hasta=hasta,
+        estado="queued",
+        created_by_user_id=created_by_user_id,
+        observaciones="Encolada por flujo de reporte (auto).",
+    )
+    db.session.add(ejecucion)
+    db.session.commit()
+    ejecucion_id = int(ejecucion.id)
+    logger.info(
+        "[ETL-async] queued ejecucion_id=%s origen=%s desde=%s hasta=%s user_id=%s",
+        ejecucion_id, origen, desde, hasta, created_by_user_id,
+    )
+
+    def _worker(app_ref: Flask, ejec_id: int, d_desde: date, d_hasta: date, d_origen: str) -> None:
+        with app_ref.app_context():
+            try:
+                logger.info(
+                    "[ETL-async] start ejecucion_id=%s origen=%s desde=%s hasta=%s",
+                    ejec_id, d_origen, d_desde, d_hasta,
+                )
+                source = source_factory()
+                resumen = run_etl(
+                    source=source,
+                    desde=d_desde,
+                    hasta=d_hasta,
+                    origen=d_origen,
+                    ejecucion_id=ejec_id,
+                )
+                logger.info(
+                    "[ETL-async] done ejecucion_id=%s estado=%s pasos=%d",
+                    ejec_id, resumen.estado, len(resumen.pasos),
+                )
+            except Exception as exc:  # noqa: BLE001
+                app_ref.logger.exception(
+                    "[ETL-async] FAILED ejecucion_id=%s origen=%s desde=%s hasta=%s",
+                    ejec_id, d_origen, d_desde, d_hasta,
+                )
+                try:
+                    db.session.rollback()
+                    ej = db.session.get(EjecucionImportacion, ejec_id)
+                    if ej is not None and ej.estado in ("queued", "running"):
+                        ej.estado = "error"
+                        ej.observaciones = f"async_failed: {type(exc).__name__}: {exc}"
+                        db.session.commit()
+                except Exception:  # noqa: BLE001
+                    app_ref.logger.exception(
+                        "[ETL-async] no se pudo marcar ejecucion %s como error", ejec_id,
+                    )
+
+    t = threading.Thread(
+        target=_worker,
+        args=(flask_app, ejecucion_id, desde, hasta, origen),
+        name=f"etl-async-{ejecucion_id}",
+        daemon=True,
+    )
+    t.start()
+    return ejecucion_id
+

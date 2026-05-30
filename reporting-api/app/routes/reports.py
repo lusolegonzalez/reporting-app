@@ -1,11 +1,17 @@
 import io
+import logging
 
-from flask import Blueprint, jsonify, request, send_file
+from flask import Blueprint, jsonify, request, send_file, current_app
 from flask_jwt_extended import current_user, jwt_required
 
 from app.extensions import db
 from app.models import Reporte, Rol, RolReportePermiso
 from app.services.audit import record_report_query
+from app.services.etl.availability import (
+    find_active_execution,
+    find_missing_ranges,
+)
+from app.services.etl.runner import queue_etl_async
 from app.services.reports import (
     ReportNotFoundError,
     ReportPermissionError,
@@ -15,7 +21,12 @@ from app.services.reports import (
 from app.utils.auth import admin_required
 
 
+logger = logging.getLogger(__name__)
+
 reports_bp = Blueprint("reports", __name__)
+
+
+ETL_AUTO_ORIGEN_DEFAULT = "TwinsDbQuatro045"
 
 
 def _serialize_report(report: Reporte) -> dict:
@@ -317,11 +328,19 @@ def run_report(codigo: str):
         return result
     report: Reporte = result
 
-    print(request.get_json())
+    user_id = getattr(current_user, "id", None)
+    raw_body = request.get_json(silent=True) or {}
+    raw_params_preview = raw_body.get("parametros") or {}
+    formato_preview = (raw_body.get("formato") or "json").strip().lower()
+    logger.info(
+        "[REPORT] run request codigo=%s formato=%s user_id=%s parametros=%s",
+        report.codigo, formato_preview, user_id, raw_params_preview,
+    )
 
     try:
         definition = report_registry.get(report.codigo)
     except ReportNotFoundError:
+        logger.info("[REPORT] run codigo=%s -> 404 no executable definition", report.codigo)
         return (
             jsonify({"message": "El reporte no tiene una definición ejecutable registrada."}),
             404,
@@ -349,7 +368,26 @@ def run_report(codigo: str):
     try:
         report_request = definition.parse_and_validate(raw_parametros)
     except ReportValidationError as exc:
+        logger.info(
+            "[REPORT] run codigo=%s -> 400 validation field=%s msg=%s",
+            report.codigo, exc.field, exc.message,
+        )
         return jsonify({"message": exc.message, "field": exc.field}), 400
+
+    # ── ETL bajo demanda ───────────────────────────────────────────────
+    # Si el reporte declara un rango requerido en la base intermedia, validamos
+    # cobertura. Si falta data, disparamos ETL asincronico y respondemos 202.
+    etl_status = _ensure_etl_coverage(definition, report_request)
+    if etl_status is not None:
+        logger.info(
+            "[REPORT] codigo=%s -> 202 %s ejecucion_id=%s reusada=%s rango_faltante=%s",
+            report.codigo,
+            etl_status.get("status"),
+            etl_status.get("ejecucion_id"),
+            etl_status.get("reusada"),
+            etl_status.get("rango_faltante"),
+        )
+        return jsonify(etl_status), 202
 
     try:
         with record_report_query(
@@ -359,15 +397,25 @@ def run_report(codigo: str):
         ):
             response = definition.execute(report_request)
     except ReportValidationError as exc:
+        logger.info(
+            "[REPORT] execute codigo=%s -> 400 validation field=%s msg=%s",
+            report.codigo, exc.field, exc.message,
+        )
         return jsonify({"message": exc.message, "field": exc.field}), 400
     except ReportPermissionError as exc:
+        logger.info("[REPORT] execute codigo=%s -> 403 %s", report.codigo, exc)
         return jsonify({"message": str(exc)}), 403
     except Exception:  # noqa: BLE001
+        logger.exception("[REPORT] execute codigo=%s -> 500 unhandled", report.codigo)
         return jsonify({"message": "Error ejecutando el reporte."}), 500
 
     response.export_permitido = {"excel": can_export, "pdf": can_export}
 
     if formato == "json":
+        logger.info(
+            "[REPORT] codigo=%s -> 200 report_ready secciones=%d alertas=%d",
+            report.codigo, len(response.secciones), len(response.alertas),
+        )
         return jsonify(response.to_dict()), 200
 
     # ── Exportación real ────────────────────────────────────────────────────
@@ -393,6 +441,123 @@ def run_report(codigo: str):
         as_attachment=True,
         download_name=filename,
     )
+
+
+def _ensure_etl_coverage(definition, report_request):
+    """Devuelve None si la base intermedia ya tiene el rango requerido.
+
+    Si el reporte declara `loaded_range_requerido` y hay huecos, dispara ETL
+    asincronico (o reutiliza uno encolado/en curso) y devuelve un payload
+    estructurado describiendo el estado, para que el endpoint responda 202.
+    """
+    fn = getattr(definition, "loaded_range_requerido", None)
+    if not callable(fn):
+        logger.debug(
+            "[REPORT] coverage check skipped codigo=%s (reporte no declara rango)",
+            getattr(definition, "codigo", "?"),
+        )
+        return None
+
+    rango = fn(report_request)
+    if rango is None:
+        logger.debug(
+            "[REPORT] coverage check skipped codigo=%s (loaded_range_requerido devolvio None)",
+            getattr(definition, "codigo", "?"),
+        )
+        return None
+    desde, hasta = rango
+    origen = current_app.config.get("ETL_AUTO_ORIGEN") or ETL_AUTO_ORIGEN_DEFAULT
+
+    logger.info(
+        "[REPORT] coverage check codigo=%s origen=%s desde=%s hasta=%s",
+        getattr(definition, "codigo", "?"), origen, desde, hasta,
+    )
+
+    gaps = find_missing_ranges(desde, hasta, origen)
+    if not gaps:
+        logger.info(
+            "[REPORT] coverage available=true origen=%s desde=%s hasta=%s "
+            "(rango cubierto por ejecuciones ok/partial existentes)",
+            origen, desde, hasta,
+        )
+        return None  # todo el rango ya esta cargado
+
+    gaps_str = ",".join(f"{g.desde}..{g.hasta}" for g in gaps)
+    logger.info(
+        "[REPORT] coverage available=false origen=%s desde=%s hasta=%s huecos=[%s]",
+        origen, desde, hasta, gaps_str,
+    )
+
+    # Rango faltante a cargar: tomamos el envoltorio [min_desde, max_hasta]
+    # para hacer una unica corrida (mas simple y consistente con el lock).
+    g_desde = min(g.desde for g in gaps)
+    g_hasta = max(g.hasta for g in gaps)
+
+    # Anti-duplicacion: reusar ejecucion activa que ya cubra el faltante
+    activa = find_active_execution(g_desde, g_hasta, origen)
+    if activa is not None:
+        logger.info(
+            "[REPORT] ETL already running execution_id=%s estado=%s origen=%s "
+            "rango_activo=%s..%s (reusando, no se dispara nueva corrida)",
+            activa.id, activa.estado, origen,
+            activa.fecha_desde, activa.fecha_hasta,
+        )
+        return {
+            "status": "preparing_data",
+            "ejecucion_id": activa.id,
+            "estado": activa.estado,
+            "origen": origen,
+            "rango_faltante": {"desde": g_desde.isoformat(), "hasta": g_hasta.isoformat()},
+            "huecos": [g.to_dict() for g in gaps],
+            "reusada": True,
+            "message": "Se esta cargando el rango solicitado, reintente en unos instantes.",
+        }
+
+    from app.routes.etl import build_source_for_kind, default_source_kind
+
+    source_kind = default_source_kind()
+    logger.info(
+        "[REPORT] triggering ETL for missing range origen=%s source_kind=%s desde=%s hasta=%s",
+        origen, source_kind, g_desde, g_hasta,
+    )
+
+    def _factory():
+        return build_source_for_kind(source_kind)
+
+    try:
+        ejecucion_id = queue_etl_async(
+            desde=g_desde,
+            hasta=g_hasta,
+            origen=origen,
+            created_by_user_id=getattr(current_user, "id", None),
+            source_factory=_factory,
+        )
+    except Exception:  # noqa: BLE001
+        current_app.logger.exception(
+            "[REPORT] no se pudo encolar ETL on-demand origen=%s desde=%s hasta=%s",
+            origen, g_desde, g_hasta,
+        )
+        return {
+            "status": "etl_dispatch_error",
+            "origen": origen,
+            "rango_faltante": {"desde": g_desde.isoformat(), "hasta": g_hasta.isoformat()},
+            "message": "Falta cargar datos del rango pedido y no se pudo iniciar el ETL.",
+        }
+
+    logger.info(
+        "[REPORT] ETL queued execution_id=%s estado=queued origen=%s desde=%s hasta=%s",
+        ejecucion_id, origen, g_desde, g_hasta,
+    )
+    return {
+        "status": "preparing_data",
+        "ejecucion_id": ejecucion_id,
+        "estado": "queued",
+        "origen": origen,
+        "rango_faltante": {"desde": g_desde.isoformat(), "hasta": g_hasta.isoformat()},
+        "huecos": [g.to_dict() for g in gaps],
+        "reusada": False,
+        "message": "Faltan datos del rango. Se inicio la carga ETL en segundo plano.",
+    }
 
 
 def _safe_json_dumps(value: dict) -> str:

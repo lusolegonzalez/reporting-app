@@ -27,3 +27,13 @@ export type EtlRunResponse = {
   estado: string;
   pasos: EtlStepResult[];
 };
+
+export type EtlEjecucionEstado = {
+  id: number;
+  estado: 'queued' | 'running' | 'ok' | 'partial' | 'error' | string;
+  origen: string;
+  fecha_desde: string;
+  fecha_hasta: string;
+  terminada: boolean;
+  observaciones?: string | null;
+};

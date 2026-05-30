@@ -1,33 +1,74 @@
 # Manual de usuario — Portal de Reporting
 
-Este manual describe cómo usar el portal web de reporting tal como está
-implementado hoy. Está pensado para usuarios funcionales (consultan
-reportes) y para administradores (configuran usuarios, roles y
-visibilidad).
+Este manual describe cómo usar el portal web de reporting en su estado
+actual. Está dirigido a usuarios funcionales (consultan reportes) y a
+administradores (gestionan usuarios, roles, visibilidad de reportes y
+actualización de datos).
 
 ---
 
-## 1. Acceso al portal
+## 1. Introducción
 
-1. Abrir el navegador en la dirección que provee el área de sistemas
-   (por ejemplo `http://localhost:5173` en entorno local).
-2. Se muestra la pantalla **Login**.
-3. Ingresar:
+El portal de reporting permite consultar información de producción
+generada en la planta y presentarla de forma estructurada para su
+análisis o presentación ante organismos como SENASA.
+
+El sistema está compuesto por:
+
+- **Portal web**: interfaz de usuario accesible desde el navegador.
+- **Backend (API)**: procesa las consultas y aplica las reglas de
+  negocio.
+- **Base intermedia (PostgreSQL)**: almacena los datos ya procesados
+  que usa el portal.
+- **Fuente de datos (SQL Server / Twins)**: origen de los datos de
+  producción. Los datos se traen manualmente mediante el proceso ETL.
+
+> **Punto clave**: los datos del portal no se actualizan solos. Un
+> administrador debe ejecutar el ETL manualmente para traer información
+> nueva desde el sistema fuente (Twins). Si el reporte no muestra datos,
+> lo primero a verificar es si se corrió el ETL para ese rango de fechas.
+
+---
+
+## 2. Acceso al sistema
+
+### Dirección
+
+En el entorno de Test, ingresar desde el navegador a la dirección
+interna provista por el área de sistemas. Ejemplo:
+
+```
+http://IP_DEL_SERVIDOR:8523/login
+```
+
+En entorno local de desarrollo, la dirección habitual es
+`http://localhost:5173`.
+
+### Inicio de sesión
+
+1. Se muestra la pantalla **Login**.
+2. Ingresar:
    - **Email**: el correo asociado a la cuenta.
    - **Password**: la contraseña asignada.
-4. Presionar **Ingresar**.
+3. Presionar **Ingresar**.
 
-Si las credenciales son correctas, el portal redirige automáticamente al
-**Dashboard**. Si fallan, aparece un mensaje de error debajo del
-formulario (por ejemplo, "Credenciales inválidas" o "Usuario inactivo").
+Si las credenciales son correctas, el portal redirige al **Dashboard**.
+Si fallan, aparece un mensaje de error debajo del formulario (por
+ejemplo, "Credenciales inválidas" o "Usuario inactivo").
 
 > La sesión se mantiene activa hasta que se cierra explícitamente con
 > **Cerrar sesión** o hasta que vence el token. Si vence, el portal
-> vuelve a la pantalla de Login automáticamente.
+> vuelve automáticamente a la pantalla de Login.
+
+### Cierre de sesión
+
+Presionar **Cerrar sesión** en la parte inferior de la barra lateral.
+El portal vuelve al Login y descarta la sesión. Toda actividad posterior
+requiere ingresar nuevamente las credenciales.
 
 ---
 
-## 2. Navegación general
+## 3. Navegación general
 
 Una vez dentro, la pantalla se divide en dos áreas:
 
@@ -38,30 +79,92 @@ Una vez dentro, la pantalla se divide en dos áreas:
 
 | Opción | Disponible para | Función |
 |---|---|---|
-| Dashboard | Todos los usuarios | Vista general y estado del backend |
+| Dashboard | Todos los usuarios | Vista general y estado del sistema |
 | Reportes | Todos los usuarios | Listado y ejecución de reportes |
+| ETL | Solo administradores | Actualización manual de datos |
 | Usuarios | Solo administradores | Alta y administración de cuentas |
 | Roles | Solo administradores | Alta y administración de roles y permisos |
 
-> Las opciones **Usuarios** y **Roles** sólo aparecen si la cuenta tiene
-> el rol `ADMIN`. Un usuario funcional no las ve.
+> Las opciones **ETL**, **Usuarios** y **Roles** sólo aparecen si la
+> cuenta tiene el rol `ADMIN`. Un usuario funcional no las ve.
 
-En la parte inferior de la barra lateral está el botón **Cerrar sesión**.
+### Dashboard
 
----
-
-## 3. Dashboard
-
-Es la primera pantalla luego del login. Muestra:
-
-- Nombre y email del usuario en sesión.
-- Estado de conexión con el backend (`reporting-api - ok` si responde).
-
-Sirve como verificación rápida de que el sistema está operativo.
+Es la primera pantalla luego del login. Muestra el nombre y email del
+usuario en sesión, y el estado de conexión con el backend
+(`reporting-api - ok` si responde). Sirve como verificación rápida de
+que el sistema está operativo.
 
 ---
 
-## 4. Pantalla de Reportes
+## 4. Actualización de datos (ETL)
+
+> Esta pantalla está disponible **solo para administradores**.
+
+### ¿Para qué sirve?
+
+El ETL es el proceso que trae datos desde el sistema fuente (SQL Server /
+Twins) hacia la base intermedia del portal. Sin ejecutarlo, el portal no
+tiene información nueva para mostrar en los reportes.
+
+El proceso no es automático ni continuo: **debe iniciarse manualmente**
+cada vez que se necesite actualizar los datos. Puede ejecutarse tantas
+veces como sea necesario; el sistema no duplica registros por
+solapamiento de rangos.
+
+### Cómo ejecutar el ETL
+
+1. Acceder a **ETL** desde el menú lateral.
+2. Completar el formulario:
+
+| Campo | Descripción |
+|---|---|
+| **Desde** | Fecha de inicio del rango a importar (formato dd/MM/yyyy en la UI) |
+| **Hasta** | Fecha de fin del rango a importar |
+| **Origen (DB)** | Nombre de la base de datos fuente. Por defecto: `TwinsDbQuatro045` |
+| **Source** | Origen de los datos. Usar **SQL Server (Twins)** para datos reales |
+
+3. Presionar **Ejecutar ETL**.
+4. El botón muestra **"Ejecutando…"** mientras el proceso corre. Esperar
+   a que finalice antes de cerrar la pantalla.
+
+> La corrida corre y termina: no queda ejecutándose en segundo plano.
+> Una vez que el botón vuelve a estar disponible, el proceso terminó.
+
+### Interpretar el resultado
+
+Cuando finaliza, aparece un resumen de la ejecución:
+
+- **ID de ejecución**: número identificador de esa corrida.
+- **Estado**: `ok` si todo fue correcto, `error` si algo falló.
+- **Totales**: filas leídas, insertadas, actualizadas, descartadas y
+  errores.
+- **Detalle por tabla**: desglose del resultado para cada entidad
+  importada (mercaderías, operarios, tropas, faena, salidas).
+
+Si hubo errores en alguna tabla, aparece un apartado desplegable con el
+detalle de cada fila que no pudo procesarse.
+
+### Qué implica una corrida exitosa
+
+Una corrida con estado `ok` significa que los datos del rango
+seleccionado fueron importados correctamente y que las vistas del
+portal están actualizadas.
+
+Que la corrida sea exitosa **no garantiza** que el reporte devuelva
+datos para cualquier rango: solo asegura que los datos de *ese rango*
+están disponibles. Si se consulta un período para el que no se corrió
+el ETL, el reporte mostrará secciones vacías.
+
+### Opción "Source: Vacío (validación)"
+
+Esta opción ejecuta el proceso sin conectarse a Twins. Se usa para
+verificar que la maquinaria funciona correctamente sin modificar datos.
+**No importar datos reales con esta opción.**
+
+---
+
+## 5. Pantalla de Reportes
 
 Acceder desde el menú lateral en **Reportes**.
 
@@ -93,9 +196,10 @@ Se muestra una tabla con los reportes disponibles:
 
 ---
 
-## 5. Consulta de un reporte
+## 6. Consulta de un reporte
 
-Al presionar **Ver** en un reporte se abre la pantalla de detalle, dividida en:
+Al presionar **Ver** en un reporte se abre la pantalla de detalle,
+dividida en:
 
 1. **Encabezado**: nombre y descripción del reporte.
 2. **Parámetros**: formulario con los campos requeridos por ese reporte.
@@ -112,15 +216,15 @@ Al presionar **Ver** en un reporte se abre la pantalla de detalle, dividida en:
      parámetros usados.
    - **Alertas** (si las hay): mensajes informativos o de advertencia.
    - **Secciones de datos**: una o varias tablas con las filas
-     resultantes. Si una sección no tiene resultados, indica
+     resultantes. Si una sección no tiene filas, indica
      *"Sin datos para los parámetros indicados."*
-5. Si hay un error, se muestra debajo del formulario (por ejemplo,
-   parámetro inválido o reporte sin permiso).
+5. Si hay un error, se muestra debajo del formulario.
 
 ### Mensajes habituales
 
 - *"Sin datos para los parámetros indicados."* — la consulta se ejecutó
-  correctamente pero no hay registros para esos filtros.
+  correctamente pero no hay registros para esos filtros. Verificar si se
+  corrió el ETL para ese rango.
 - *"El reporte se encuentra inactivo."* — el administrador deshabilitó
   el reporte.
 - *"Sin permiso para visualizar este reporte."* — falta asignación de
@@ -128,56 +232,101 @@ Al presionar **Ver** en un reporte se abre la pantalla de detalle, dividida en:
 
 ---
 
-## 6. Reporte DDJJ Menudencias
+## 7. Reporte DDJJ Menudencias
 
-Reporte para la **Declaración Jurada de producción** dirigida a SENASA.
+Reporte de **Declaración Jurada de producción** para SENASA. Lee datos
+reales desde la base intermedia, actualizada por el ETL.
+
+### Cómo acceder
+
+Desde el menú lateral, ingresar a **Reportes** y presionar **Ver** en
+el reporte `DDJJ_MENUDENCIAS`.
 
 ### Parámetros
 
 | Parámetro | Tipo | Obligatorio | Descripción |
 |---|---|---|---|
-| `fecha_desde` | Fecha | Sí | Inicio del rango a consultar |
-| `fecha_hasta` | Fecha | Sí | Fin del rango. Debe ser igual o posterior a `fecha_desde` |
-| `mostrar_tropas` | Sí / No | No | Solo aplica cuando `fecha_desde` y `fecha_hasta` son el mismo día |
+| Fecha desde | Fecha | Sí | Inicio del rango a consultar |
+| Fecha hasta | Fecha | Sí | Fin del rango. Debe ser igual o posterior a "Fecha desde" |
+| Mostrar tropas | Sí / No | No | Incluye el listado de tropas. Solo aplica cuando ambas fechas son el mismo día |
+
+Las fechas se ingresan en formato **dd/MM/yyyy** a través del selector de
+fecha del navegador.
 
 ### Validaciones
 
-- `fecha_hasta` no puede ser anterior a `fecha_desde`.
-- El rango total no puede superar 366 días.
-- Si se marca `mostrar_tropas` para un rango mayor a un día, el sistema
+- "Fecha hasta" no puede ser anterior a "Fecha desde".
+- El rango no puede superar 366 días.
+- Si se activa "Mostrar tropas" para un rango mayor a un día, el sistema
   ignora la opción y devuelve una alerta informando la situación.
 
 ### Secciones del resultado
 
-| Código | Contenido |
-|---|---|
-| `diaria` | Producción diaria (relevante cuando se consulta un único día) |
-| `decomisos` | Decomisos del rango |
-| `mensual` | Acumulado mensual del rango |
+El reporte devuelve tres secciones. Todas muestran columnas:
+**Código Producto**, **Descripción**, **Cajas**, **Kg. Neto**.
 
-Columnas: `Código Producto`, `Descripción`, `Cajas`, `Kg. Neto`.
+#### Producción del día (`diaria`)
+
+Solo se puebla cuando ambas fechas son el mismo día. Muestra la
+producción de menudencias para esa jornada, junto con el total de
+cabezas faenadas. Si se activó "Mostrar tropas", también aparece el
+listado de tropas con sus cabezas.
+
+#### Decomisos (`decomisos`)
+
+Muestra los decomisos registrados en el rango consultado, agrupados por
+código de producto. Incluye el total de cabezas faenadas del período.
+
+#### Acumulado del rango (`mensual`)
+
+Muestra el acumulado de producción de menudencias por código de producto
+para todo el rango. Incluye el total de cabezas faenadas del período.
 
 ### Alertas posibles
 
-- **TROPAS_SOLO_DIARIO** *(advertencia)*: se solicitó mostrar tropas en
-  un rango mayor a un día; la opción se ignoró.
-- **CONSISTENCIA_PENDIENTE** *(informativa)*: aviso de que la validación
-  cruzada entre menudencias y cabezas faenadas se cerrará junto con la
-  consulta SQL final.
+| Código | Nivel | Significado |
+|---|---|---|
+| `TROPAS_SOLO_DIARIO` | Advertencia | Se pidió mostrar tropas en un rango mayor a un día; la opción se ignoró |
+| `EXCEDE_CABEZAS` | Advertencia | Hay días en los que la cantidad de cajas de menudencias supera a las cabezas faenadas |
 
-> Estado actual: la estructura, parámetros, alertas y permisos están
-> operativos. La carga de filas reales se conecta cuando se cierre la
-> consulta SQL definitiva contra la base intermedia.
+### Qué significa que no haya datos
+
+Si una sección aparece vacía, puede deberse a:
+
+1. **No se corrió el ETL para ese rango**: la base intermedia no tiene
+   datos de esas fechas. Solución: ejecutar el ETL para el período
+   correspondiente y volver a consultar.
+2. **No hubo producción en ese período**: el ETL se corrió correctamente
+   pero no existían registros en la fuente para esas fechas.
+
+Que una sección esté vacía no es un error del sistema; es información
+válida que refleja el estado de los datos disponibles.
 
 ---
 
-## 7. Restricciones por permisos
+## 8. Exportaciones
+
+Dentro de la pantalla de un reporte pueden aparecer botones adicionales:
+
+- **Exportar Excel**
+- **Exportar PDF**
+
+Estos botones solo se muestran si el rol del usuario tiene **Puede
+exportar** habilitado para ese reporte y si el reporte declara ese
+formato como disponible.
+
+> Estado actual: la funcionalidad de exportación está en proceso de
+> habilitación final. La consulta en pantalla funciona con normalidad.
+
+---
+
+## 9. Restricciones por permisos
 
 El acceso se controla por **rol**. Un mismo usuario puede tener uno o
 más roles. Cada rol define, para cada reporte:
 
 - **Puede ver** — habilita ver el reporte y consultarlo en pantalla.
-- **Puede exportar** — habilita los botones de exportación. Sólo aplica
+- **Puede exportar** — habilita los botones de exportación. Solo aplica
   si además tiene "Puede ver".
 
 Reglas prácticas:
@@ -186,36 +335,13 @@ Reglas prácticas:
   no aparece en el listado.
 - Si un usuario intenta acceder por URL directa a un reporte sin
   permiso, el portal muestra un error de autorización.
-- Las opciones administrativas (Usuarios, Roles, edición de reportes,
-  configuración de visibilidad, ETL, auditoría) están reservadas al rol
+- Las opciones administrativas (ETL, Usuarios, Roles, edición de
+  reportes, configuración de visibilidad) están reservadas al rol
   `ADMIN`.
 
 ---
 
-## 8. Exportaciones
-
-Dentro de la pantalla de un reporte, además del botón **Consultar**,
-pueden aparecer botones adicionales:
-
-- **Exportar Excel**
-- **Exportar PDF**
-
-Condiciones:
-
-- Sólo se muestran si el rol del usuario tiene **Puede exportar**
-  habilitado para ese reporte.
-- Sólo se muestran si el reporte declara ese formato como disponible.
-
-> Estado actual: el contrato de exportación está implementado y los
-> botones aparecen cuando el perfil lo permite. El renderizado a Excel y
-> PDF aún no está disponible: al presionar el botón, el sistema muestra
-> el mensaje *"La exportación a EXCEL/PDF aún no está disponible."*
-> hasta que se habilite el generador definitivo. Mientras tanto, la
-> consulta en pantalla (formato JSON) sí funciona normalmente.
-
----
-
-## 9. Gestión de usuarios y roles (perfil administrador)
+## 10. Gestión de usuarios y roles (perfil administrador)
 
 Las siguientes pantallas solo están disponibles para usuarios con rol
 `ADMIN`.
@@ -251,8 +377,7 @@ acceder a la sección de visibilidad. Para cada rol existente:
   *"Puede ver"*, también se desmarca automáticamente *"Puede exportar"*.
 
 Los cambios se guardan al confirmar la pantalla. A partir de ese
-momento, los usuarios de cada rol verán o dejarán de ver el reporte
-según corresponda.
+momento, los usuarios de ese rol verán o dejarán de ver el reporte.
 
 ### Buenas prácticas administrativas
 
@@ -265,28 +390,71 @@ según corresponda.
 
 ---
 
-## 10. Cierre de sesión
+## 11. Consideraciones importantes
 
-Presionar **Cerrar sesión** en la barra lateral. El portal vuelve a la
-pantalla de Login y se descarta la sesión local. Toda actividad
-posterior requiere ingresar nuevamente las credenciales.
+- **Los datos del portal dependen del ETL.** Si no se actualizaron los
+  datos, el reporte mostrará lo que haya en la base intermedia desde la
+  última corrida.
+- **El ETL es idempotente en datos core**: se puede correr varias veces
+  para el mismo rango sin duplicar registros en la base. Los datos de
+  auditoría (staging) sí acumulan por corrida.
+- **Una corrida exitosa no implica datos en todo rango**: solo garantiza
+  que el período importado está disponible. Si el sistema fuente no
+  tenía registros para esas fechas, la base intermedia tampoco los
+  tendrá.
+- **Secciones vacías no son errores**: indican que no hay registros para
+  ese período en la base. Verificar si se corrió el ETL o si
+  efectivamente no hubo actividad en esas fechas.
 
 ---
 
-## Resumen final
+## 12. Preguntas frecuentes
 
-Este manual cubre el uso real del portal de reporting en su estado
-actual:
+**No puedo iniciar sesión.**
+Verificar que el email y la contraseña sean correctos. Si el mensaje
+dice "Usuario inactivo", contactar a un administrador para reactivar la
+cuenta. Si el problema persiste, solicitar al administrador que
+restablezca la contraseña.
 
-- **Para el usuario funcional**: cómo ingresar, ubicar los reportes
-  habilitados para su rol, consultarlos (incluido el reporte DDJJ
-  Menudencias), entender las alertas y, si su perfil lo permite,
-  solicitar exportaciones.
-- **Para el administrador funcional**: además de lo anterior, cómo
-  administrar usuarios, roles y la visibilidad de cada reporte por rol,
-  incluyendo la habilitación o restricción de exportaciones.
+**Ejecuté el ETL pero el reporte sigue sin mostrar datos.**
+Verificar que el rango del ETL coincida con el rango consultado en el
+reporte. Si no coinciden, ejecutar el ETL para el rango que se quiere
+consultar.
 
-Funcionalidades fuera de alcance de este manual (operación de ETL,
-consulta de auditoría técnica, despliegue, configuración de variables
-de entorno) están documentadas en el material técnico bajo la carpeta
+**El rango que consulté no devuelve información.**
+Puede que no se haya corrido el ETL para esas fechas, o que no haya
+habido actividad en la fuente de datos para ese período. Consultar con
+el equipo qué fechas tienen datos cargados.
+
+**¿Cuántas veces se puede ejecutar el ETL para el mismo rango?**
+Cuantas veces sea necesario. El sistema no duplica datos de producción
+por solapamiento de rangos. Cada corrida genera su propio registro de
+auditoría.
+
+**¿Qué significa el estado `error` en una corrida ETL?**
+Que al menos un paso del proceso encontró un problema. Ver el detalle
+de errores en la tabla de resultados para identificar qué tabla y qué
+registros fallaron. Los datos que sí se procesaron correctamente quedan
+disponibles igualmente.
+
+**¿Por qué la opción "Mostrar tropas" no aparece en el resultado?**
+"Mostrar tropas" solo aplica cuando se consulta un único día (fecha
+desde igual a fecha hasta). Si el rango abarca más de un día, la opción
+se ignora y el sistema genera una alerta informativa.
+
+---
+
+## Resumen
+
+Este manual cubre el uso operativo del portal de reporting:
+
+- **Para el usuario funcional**: cómo ingresar, consultar los reportes
+  habilitados para su rol (incluido DDJJ Menudencias), interpretar
+  alertas y secciones de resultados.
+- **Para el administrador**: además de lo anterior, cómo ejecutar el
+  ETL para actualizar los datos, y cómo gestionar usuarios, roles y
+  visibilidad de reportes.
+
+Documentación técnica (despliegue, variables de entorno, auditoría,
+configuración de infraestructura) está disponible en la carpeta
 [`docs/`](.) del repositorio.

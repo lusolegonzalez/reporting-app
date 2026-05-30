@@ -82,19 +82,8 @@ def export_to_excel(response: ReportResponse) -> bytes:
         row += 1
     row += 1
 
-    # Alertas
-    if response.alertas:
-        ws.cell(row=row, column=1, value="Alertas").font = Font(bold=True, size=11)
-        row += 1
-        _COLOR_ALERTA = {"error": "CC0000", "warning": "CC6600", "info": "0055AA"}
-        for alerta in response.alertas:
-            color = _COLOR_ALERTA.get(alerta.nivel, "333333")
-            ws.cell(
-                row=row,
-                column=1,
-                value=f"[{alerta.nivel.upper()}] {alerta.codigo}: {alerta.mensaje}",
-            ).font = Font(color=color)
-            row += 1
+    # Alertas: se omiten deliberadamente en la exportacion (Excel/PDF).
+    # Las alertas solo se muestran en pantalla; ver ReportRunner.tsx.
 
     ws.column_dimensions["A"].width = 28
     ws.column_dimensions["B"].width = 55
@@ -344,25 +333,8 @@ def export_to_pdf(response: ReportResponse) -> bytes:
     )
     elements.append(param_table)
 
-    # ── Alertas ───────────────────────────────────────────────────────────────
-    if response.alertas:
-        elements.append(Spacer(1, 0.3 * cm))
-        elements.append(Paragraph("Alertas", style_h2))
-        for alerta in response.alertas:
-            color = _ALERTA_COLORS.get(alerta.nivel, colors.black)
-            style_alerta = ParagraphStyle(
-                f"Alerta_{alerta.nivel}",
-                parent=style_normal,
-                textColor=color,
-                fontSize=9,
-                spaceAfter=2,
-            )
-            elements.append(
-                Paragraph(
-                    f"<b>[{alerta.nivel.upper()}] {alerta.codigo}:</b> {alerta.mensaje}",
-                    style_alerta,
-                )
-            )
+    # Alertas: se omiten deliberadamente en la exportacion (Excel/PDF).
+    # Solo se muestran en pantalla (ReportRunner.tsx).
 
     # ── Secciones ─────────────────────────────────────────────────────────────
     for seccion in response.secciones:

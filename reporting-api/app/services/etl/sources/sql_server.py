@@ -193,7 +193,7 @@ class SqlServerTwinsSource:
                 ihst.Id                         AS twins_subtropa_id,
                 ihstd.Id                        AS twins_subtropa_detalle_id,
                 fae.ListaDetalle_Id             AS twins_lista_detalle_id,
-                CAST(ih.Id AS varchar(30))      AS numero_tropa,
+                CAST(ih.iTropa AS varchar(30))  AS numero_tropa,
                 CAST(ihst.Id AS varchar(30))    AS numero_subtropa,
                 NULL                            AS cabezas_declaradas,
                 CONVERT(date, df.dFechaFaena)   AS fecha_ingreso,
@@ -235,7 +235,7 @@ class SqlServerTwinsSource:
                 ihst.Id                         AS twins_subtropa_id,
                 ihstd.Id                        AS twins_subtropa_detalle_id,
                 fae.ListaDetalle_Id             AS twins_lista_detalle_id,
-                CAST(ih.Id AS varchar(30))      AS numero_tropa,
+                CAST(ih.iTropa AS varchar(30))  AS numero_tropa,
                 CAST(ihst.Id AS varchar(30))    AS numero_subtropa,
                 NULL                            AS cabezas_declaradas,
                 CONVERT(date, mv.dFecha)        AS fecha_ingreso,
@@ -395,7 +395,7 @@ class SqlServerTwinsSource:
                 NULL                         AS twins_operario_id
             FROM movimientos.Movimientos mv WITH (NOLOCK)
             JOIN movimientos.Salidas s WITH (NOLOCK)
-              ON s.Identificador_Id = mv.Identificador_Id
+              ON s.Movimiento_Id = mv.Id
             LEFT JOIN movimientos.Banderitas b WITH (NOLOCK)
               ON b.Identificador_Id = s.Identificador_Id
              AND b.Movimiento_Id = s.Movimiento_Id

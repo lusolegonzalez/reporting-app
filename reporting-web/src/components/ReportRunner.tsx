@@ -1,7 +1,12 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 
-import { getReportMetadataRequest, runReportRequest, exportReportRequest } from '@/api';
+import {
+  getReportMetadataRequest,
+  runReportRequest,
+  exportReportRequest,
+  getEtlEjecucionEstadoRequest,
+} from '@/api';
 import type {
   ReportAlerta,
   ReportMetadata,
@@ -9,6 +14,8 @@ import type {
   ReportResponse,
   ReportSection,
 } from '@/types';
+import type { ReportPreparingPayload } from '@/api/reports';
+import { formatDateDisplay } from '@/utils/date';
 
 type FormatoExport = 'excel' | 'pdf';
 
@@ -155,7 +162,11 @@ const SectionTable = ({ section }: { section: ReportSection }) => {
                 <tr key={idx}>
                   {section.columnas.map((col) => (
                     <td key={col.key}>
-                      {col.tipo === 'number' ? formatNumber(fila[col.key]) : formatValue(fila[col.key])}
+                      {col.tipo === 'number'
+                        ? formatNumber(fila[col.key])
+                        : col.tipo === 'date'
+                          ? formatDateDisplay(fila[col.key])
+                          : formatValue(fila[col.key])}
                     </td>
                   ))}
                 </tr>
@@ -184,6 +195,21 @@ export const ReportRunner = ({ codigo }: ReportRunnerProps) => {
   const [exportNotice, setExportNotice] = useState<string | null>(null);
   const [exportingFormato, setExportingFormato] = useState<FormatoExport | null>(null);
 
+  const [etlPreparing, setEtlPreparing] = useState<ReportPreparingPayload | null>(null);
+  const [etlElapsedSec, setEtlElapsedSec] = useState(0);
+  const pollTimerRef = useRef<number | null>(null);
+  const pollAbortRef = useRef<boolean>(false);
+
+  const clearPolling = () => {
+    pollAbortRef.current = true;
+    if (pollTimerRef.current !== null) {
+      window.clearTimeout(pollTimerRef.current);
+      pollTimerRef.current = null;
+    }
+  };
+
+  useEffect(() => () => clearPolling(), []);
+
   useEffect(() => {
     const run = async () => {
       try {
@@ -211,6 +237,10 @@ export const ReportRunner = ({ codigo }: ReportRunnerProps) => {
 
   const puedeExportar = useMemo(() => Boolean(metadata?.permisos?.puede_exportar), [metadata]);
   const formatos = metadata?.formatos_disponibles ?? { json: true, excel: false, pdf: false };
+  const dateParamNames = useMemo(
+    () => new Set((metadata?.parametros ?? []).filter((p) => p.tipo === 'date').map((p) => p.nombre)),
+    [metadata],
+  );
 
   const updateValue = (nombre: string, value: string | boolean) => {
     setValues((current) => ({ ...current, [nombre]: value }));
@@ -218,13 +248,25 @@ export const ReportRunner = ({ codigo }: ReportRunnerProps) => {
 
   const handleRun = async () => {
     if (!metadata) return;
+    clearPolling();
+    pollAbortRef.current = false;
     setIsRunning(true);
     setRunError(null);
     setExportNotice(null);
+    setEtlPreparing(null);
+    setEtlElapsedSec(0);
     try {
       const payload = buildPayload(metadata.parametros, values);
       const response = await runReportRequest(codigo, { parametros: payload, formato: 'json' });
-      setResult(response);
+      if (response.kind === 'ready') {
+        setResult(response.data);
+      } else {
+        setResult(null);
+        setEtlPreparing(response.data);
+        if (response.data.status === 'preparing_data' && response.data.ejecucion_id) {
+          void startEtlPolling(response.data.ejecucion_id, payload);
+        }
+      }
     } catch (err) {
       setResult(null);
       if (axios.isAxiosError(err)) {
@@ -240,6 +282,66 @@ export const ReportRunner = ({ codigo }: ReportRunnerProps) => {
     } finally {
       setIsRunning(false);
     }
+  };
+
+  const startEtlPolling = async (
+    ejecucionId: number,
+    paramsPayload: Record<string, unknown>,
+  ) => {
+    const startedAt = Date.now();
+    const POLL_MS = 3000;
+    const MAX_MS = 10 * 60 * 1000; // 10 minutos de seguridad
+
+    const tick = async () => {
+      if (pollAbortRef.current) return;
+      try {
+        const estado = await getEtlEjecucionEstadoRequest(ejecucionId);
+        setEtlElapsedSec(Math.floor((Date.now() - startedAt) / 1000));
+        if (!estado.terminada) {
+          if (Date.now() - startedAt > MAX_MS) {
+            setRunError('La carga ETL esta tardando mas de lo esperado. Reintente manualmente.');
+            setEtlPreparing(null);
+            return;
+          }
+          pollTimerRef.current = window.setTimeout(() => void tick(), POLL_MS);
+          return;
+        }
+        // Terminado: si quedo en error, mostrar; sino, reintentar el reporte.
+        if (estado.estado === 'error') {
+          const detalle = (estado.observaciones ?? '').trim();
+          setRunError(
+            detalle
+              ? `La carga ETL fallo: ${detalle}`
+              : 'La carga ETL fallo. Revise la pantalla de ETL para mas detalle.',
+          );
+          setEtlPreparing(null);
+          return;
+        }
+        setEtlPreparing(null);
+        const response = await runReportRequest(codigo, {
+          parametros: paramsPayload,
+          formato: 'json',
+        });
+        if (response.kind === 'ready') {
+          setResult(response.data);
+        } else {
+          // Caso raro: termino ok pero todavia faltan rangos (otro hueco).
+          setEtlPreparing(response.data);
+          if (response.data.status === 'preparing_data' && response.data.ejecucion_id) {
+            void startEtlPolling(response.data.ejecucion_id, paramsPayload);
+          }
+        }
+      } catch (err) {
+        if (axios.isAxiosError(err)) {
+          setRunError(err.response?.data?.message ?? 'Error consultando estado del ETL.');
+        } else {
+          setRunError('Error consultando estado del ETL.');
+        }
+        setEtlPreparing(null);
+      }
+    };
+
+    pollTimerRef.current = window.setTimeout(() => void tick(), POLL_MS);
   };
 
   const handleExport = async (formato: FormatoExport) => {
@@ -298,7 +400,7 @@ export const ReportRunner = ({ codigo }: ReportRunnerProps) => {
         ) : (
           <div className="form-grid report-parameters-grid">
             {metadata.parametros.map((p) => {
-              const label = `${p.nombre}${p.requerido ? ' *' : ''}`;
+              const label = `${p.etiqueta ?? p.nombre}${p.requerido ? ' *' : ''}`;
               if (p.tipo === 'bool') {
                 return (
                   <label key={p.nombre} className="checkbox-label">
@@ -354,6 +456,23 @@ export const ReportRunner = ({ codigo }: ReportRunnerProps) => {
 
         {runError && <p className="message error">{runError}</p>}
         {exportNotice && <p className="message">{exportNotice}</p>}
+        {etlPreparing && (
+          <div className="message" role="status" aria-live="polite">
+            <p>
+              <strong>Preparando datos…</strong>{' '}
+              {etlPreparing.message ??
+                'Faltan datos del rango solicitado. Se esta cargando la informacion necesaria.'}
+            </p>
+            {etlPreparing.rango_faltante && (
+              <p className="section-note">
+                Rango en carga: {formatDateDisplay(etlPreparing.rango_faltante.desde)} a {formatDateDisplay(etlPreparing.rango_faltante.hasta)}
+                {etlPreparing.ejecucion_id ? ` · Ejecución #${etlPreparing.ejecucion_id}` : ''}
+                {etlPreparing.reusada ? ' · reusando carga en curso' : ''}
+                {etlElapsedSec > 0 ? ` · ${etlElapsedSec}s` : ''}
+              </p>
+            )}
+          </div>
+        )}
       </div>
 
       {result && (
@@ -373,7 +492,7 @@ export const ReportRunner = ({ codigo }: ReportRunnerProps) => {
                 <dt>Parámetros</dt>
                 <dd>
                   {Object.entries(result.parametros)
-                    .map(([k, v]) => `${k}: ${formatValue(v)}`)
+                    .map(([k, v]) => `${k}: ${dateParamNames.has(k) ? formatDateDisplay(v) : formatValue(v)}`)
                     .join(' · ') || '-'}
                 </dd>
               </div>

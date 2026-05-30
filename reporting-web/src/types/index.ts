@@ -16,4 +16,5 @@ export type {
   EtlSource,
   EtlStepError,
   EtlStepResult,
+  EtlEjecucionEstado,
 } from './etl';

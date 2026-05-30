@@ -33,6 +33,7 @@ export type ReportParameterDef = {
   requerido: boolean;
   descripcion: string | null;
   valor_por_defecto: unknown;
+  etiqueta?: string | null;
 };
 
 export type ReportMetadata = {

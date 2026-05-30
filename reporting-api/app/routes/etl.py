@@ -4,7 +4,7 @@ from __future__ import annotations
 from datetime import date, datetime
 
 from flask import Blueprint, jsonify, request, current_app
-from flask_jwt_extended import current_user
+from flask_jwt_extended import current_user, jwt_required
 
 from app.extensions import db
 from app.models import EjecucionError, EjecucionImportacion, EjecucionTabla
@@ -36,6 +36,23 @@ def _build_source(source_kind: str):
     if kind in ("mssql", "sqlserver", "sql_server", "twins"):
         return SqlServerTwinsSource.from_flask_config(current_app.config)
     raise ValueError(f"source desconocida: {source_kind!r}")
+
+
+def default_source_kind() -> str:
+    """Origen a usar cuando el ETL se dispara automaticamente (sin parametro 'source').
+
+    Si MSSQL_SERVER esta configurado se usa SQL Server real; sino se cae al
+    InMemoryTwinsSource (utilidad para validar el flujo en entornos dev).
+    """
+    cfg = current_app.config
+    if (cfg.get("MSSQL_SERVER") or "").strip():
+        return "mssql"
+    return "empty"
+
+
+def build_source_for_kind(kind: str):
+    """Variante reusable desde otros modulos (no usa el request actual)."""
+    return _build_source(kind)
 
 
 @etl_bp.post("/run")
@@ -157,6 +174,34 @@ def get_ejecucion(ejecucion_id: int):
                     }
                     for e in errores
                 ],
+            }
+        ),
+        200,
+    )
+
+
+@etl_bp.get("/ejecuciones/<int:ejecucion_id>/estado")
+@jwt_required()
+def get_ejecucion_estado(ejecucion_id: int):
+    """Estado simplificado de una ejecucion ETL.
+
+    Pensado para que el frontend pueda hacer polling cuando dispara un
+    reporte que requirio cargar datos faltantes. Cualquier usuario
+    autenticado puede consultarlo: no expone detalle de errores ni filas.
+    """
+    ejecucion = db.session.get(EjecucionImportacion, ejecucion_id)
+    if ejecucion is None:
+        return jsonify({"message": "Ejecucion no encontrada."}), 404
+    return (
+        jsonify(
+            {
+                "id": ejecucion.id,
+                "estado": ejecucion.estado,
+                "origen": ejecucion.origen,
+                "fecha_desde": ejecucion.fecha_desde.isoformat(),
+                "fecha_hasta": ejecucion.fecha_hasta.isoformat(),
+                "terminada": ejecucion.estado in ("ok", "partial", "error"),
+                "observaciones": ejecucion.observaciones,
             }
         ),
         200,

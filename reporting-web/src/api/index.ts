@@ -1,6 +1,6 @@
 export { loginRequest, meRequest } from './auth';
 export { apiClient } from './client';
-export { runEtlRequest } from './etl';
+export { runEtlRequest, getEtlEjecucionEstadoRequest } from './etl';
 export {
   createReportRequest,
   exportReportRequest,

@@ -49,6 +49,8 @@ class ReportParameter:
     requerido: bool = False
     descripcion: str | None = None
     valor_por_defecto: Any = None
+    # Etiqueta legible para mostrar en la UI. Si es None, el frontend usa `nombre`.
+    etiqueta: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -57,6 +59,7 @@ class ReportParameter:
             "requerido": self.requerido,
             "descripcion": self.descripcion,
             "valor_por_defecto": self.valor_por_defecto,
+            "etiqueta": self.etiqueta,
         }
 
 

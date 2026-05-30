@@ -13,12 +13,34 @@ from app.routes.users import users_bp
 import app.models  # noqa: F401
 
 
+def _configure_logging(app: Flask) -> None:
+    import logging
+    import os
+
+    level_name = os.environ.get("LOG_LEVEL") or app.config.get("LOG_LEVEL") or "INFO"
+    level = getattr(logging, str(level_name).upper(), logging.INFO)
+
+    root = logging.getLogger()
+    if not root.handlers:
+        handler = logging.StreamHandler()
+        handler.setFormatter(
+            logging.Formatter(
+                "%(asctime)s %(levelname)s [%(name)s] %(message)s",
+                datefmt="%Y-%m-%d %H:%M:%S",
+            )
+        )
+        root.addHandler(handler)
+    root.setLevel(level)
+    logging.getLogger("app").setLevel(level)
+
+
 def create_app(config_name: str | None = None) -> Flask:
     app = Flask(__name__)
 
     selected_config = config_name or app.config.get("ENV", "development")
     app.config.from_object(config_by_name[selected_config])
 
+    _configure_logging(app)
     init_extensions(app)
 
     app.register_blueprint(health_bp, url_prefix="/api")

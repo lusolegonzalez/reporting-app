@@ -78,6 +78,16 @@ class SalidasStep:
         # por cada linea de Salida si hay multiples barcodes activos para el mismo
         # (Identificador_Id, Movimiento_Id). La source_pk no incluye el barcode,
         # por lo que colisiona. Nos quedamos con la primera fila (primer barcode).
+        # Cada fila del LEFT JOIN representa 1 etiqueta/banderita = 1 caja
+        # (1 unidad = pieza dentro de una caja). Contamos las filas por source_pk
+        # para obtener la cantidad de cajas. Si no hay banderitas el LEFT JOIN
+        # devuelve igual 1 fila (con dedup_key fallback "ID:<ident>"), por lo
+        # que el conteo minimo es 1.
+        etiquetas_por_pk: dict[str, int] = {}
+        for fila in filas:
+            pk = fila["source_pk"]
+            etiquetas_por_pk[pk] = etiquetas_por_pk.get(pk, 0) + 1
+
         seen_pk_s: set[str] = set()
         filas_dedup_s: list[dict[str, Any]] = []
         for fila in filas:
@@ -168,7 +178,7 @@ class SalidasStep:
                 )
                 continue
 
-            cantidad_cajas = _to_decimal(fila["cantidad"])
+            cantidad_cajas = Decimal(etiquetas_por_pk.get(fila["source_pk"], 1))
             peso_kg = _to_decimal(fila["peso_gr"]) / Decimal("1000")
             activa = bool(fila["activa"]) if fila["activa"] is not None else True
             eliminada = bool(fila["eliminada"]) if fila["eliminada"] is not None else False

@@ -1,6 +1,21 @@
 import { apiClient } from './client';
 import type { ReportItem, ReportMetadata, ReportResponse, ReportVisibility } from '@/types';
 
+export type ReportPreparingPayload = {
+  status: 'preparing_data' | 'etl_dispatch_error';
+  ejecucion_id?: number;
+  estado?: string;
+  origen?: string;
+  rango_faltante?: { desde: string; hasta: string };
+  huecos?: Array<{ desde: string; hasta: string }>;
+  reusada?: boolean;
+  message?: string;
+};
+
+export type RunReportResult =
+  | { kind: 'ready'; data: ReportResponse }
+  | { kind: 'preparing'; data: ReportPreparingPayload };
+
 export const listReportsRequest = async (): Promise<ReportItem[]> => {
   const response = await apiClient.get<{ items: ReportItem[] }>('/reports');
   return response.data.items;
@@ -51,12 +66,16 @@ export const getReportMetadataRequest = async (codigo: string): Promise<ReportMe
 export const runReportRequest = async (
   codigo: string,
   payload: { parametros: Record<string, unknown>; formato?: 'json' | 'excel' | 'pdf' },
-): Promise<ReportResponse> => {
-  const response = await apiClient.post<ReportResponse>(
+): Promise<RunReportResult> => {
+  const response = await apiClient.post<ReportResponse | ReportPreparingPayload>(
     `/reports/by-codigo/${encodeURIComponent(codigo)}/run`,
     { parametros: payload.parametros, formato: payload.formato ?? 'json' },
+    { validateStatus: (status) => status === 200 || status === 202 },
   );
-  return response.data;
+  if (response.status === 202) {
+    return { kind: 'preparing', data: response.data as ReportPreparingPayload };
+  }
+  return { kind: 'ready', data: response.data as ReportResponse };
 };
 
 /**
