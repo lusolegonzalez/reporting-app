@@ -24,6 +24,7 @@ from app.services.etl.steps.base import EtlStep, StepResult
 from app.services.etl.steps.faena import FaenaStep
 from app.services.etl.steps.mercaderias import MercaderiasStep
 from app.services.etl.steps.operarios import OperariosStep
+from app.services.etl.steps.procesos_productivos import ProcesosProductivosStep
 from app.services.etl.steps.salidas import SalidasStep
 from app.services.etl.steps.tropas import TropasStep
 
@@ -48,6 +49,7 @@ def default_steps() -> list[EtlStep]:
     """Steps que componen una corrida estandar (orden importa)."""
     return [
         MercaderiasStep(),
+        ProcesosProductivosStep(),
         OperariosStep(),
         TropasStep(),
         FaenaStep(),

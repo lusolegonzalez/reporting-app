@@ -4,6 +4,7 @@ export type {
   ReportItem,
   ReportMetadata,
   ReportParameterDef,
+  ReportParameterOpcion,
   ReportResponse,
   ReportSection,
   ReportVisibility,

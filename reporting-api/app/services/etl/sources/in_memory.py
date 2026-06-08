@@ -10,6 +10,7 @@ class InMemoryTwinsSource:
         self,
         *,
         mercaderias: list[dict[str, Any]] | None = None,
+        procesos: list[dict[str, Any]] | None = None,
         operarios: list[dict[str, Any]] | None = None,
         tropas: list[dict[str, Any]] | None = None,
         movimientos: list[dict[str, Any]] | None = None,
@@ -17,6 +18,7 @@ class InMemoryTwinsSource:
         salidas: list[dict[str, Any]] | None = None,
     ) -> None:
         self._mercaderias = mercaderias or []
+        self._procesos = procesos or []
         self._operarios = operarios or []
         self._tropas = tropas or []
         self._movimientos = movimientos or []
@@ -25,6 +27,9 @@ class InMemoryTwinsSource:
 
     def fetch_mercaderias(self) -> Iterable[dict[str, Any]]:
         return list(self._mercaderias)
+
+    def fetch_procesos(self) -> Iterable[dict[str, Any]]:
+        return list(self._procesos)
 
     def fetch_operarios(self) -> Iterable[dict[str, Any]]:
         return list(self._operarios)

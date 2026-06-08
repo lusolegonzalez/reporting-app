@@ -1,5 +1,5 @@
 import { apiClient } from './client';
-import type { ReportItem, ReportMetadata, ReportResponse, ReportVisibility } from '@/types';
+import type { ReportItem, ReportMetadata, ReportParameterOpcion, ReportResponse, ReportVisibility } from '@/types';
 
 export type ReportPreparingPayload = {
   status: 'preparing_data' | 'etl_dispatch_error';
@@ -112,4 +112,14 @@ export const exportReportRequest = async (
   anchor.click();
   anchor.remove();
   URL.revokeObjectURL(url);
+};
+
+export const getReportCatalogoRequest = async (
+  codigo: string,
+  nombreParametro: string,
+): Promise<ReportParameterOpcion[]> => {
+  const response = await apiClient.get<{ items: ReportParameterOpcion[] }>(
+    `/reports/by-codigo/${encodeURIComponent(codigo)}/catalogo/${encodeURIComponent(nombreParametro)}`,
+  );
+  return response.data.items;
 };

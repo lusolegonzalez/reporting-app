@@ -146,6 +146,21 @@ class SqlServerTwinsSource:
         _log_result("fetch_mercaderias", len(rows))
         return rows
 
+    def fetch_procesos(self) -> Iterable[dict[str, Any]]:
+        # Fuente correcta confirmada en esta instalacion: configuracion.Procesos.
+        # (configuracion.Identificacion_Identificadores e Identificacion_Procesos
+        # estan vacias en esta instalacion y quedan descartadas.)
+        sql = """
+            SELECT
+                p.Id                                      AS twins_id,
+                ISNULL(LTRIM(RTRIM(p.sCodigo)), '')       AS codigo,
+                ISNULL(LTRIM(RTRIM(p.sDescripcion)), '')  AS descripcion
+            FROM configuracion.Procesos p
+        """
+        rows = self._query(sql)
+        _log_result("fetch_procesos", len(rows))
+        return rows
+
     def fetch_operarios(self) -> Iterable[dict[str, Any]]:
         # En Twins los operarios suelen vivir en configuracion.Usuarios.
         # Si en el cliente real es otra tabla, alcanza con tocar este SELECT.
@@ -381,6 +396,7 @@ class SqlServerTwinsSource:
             SELECT
                 s.Movimiento_Id              AS twins_movimiento_id,
                 mv.Identificador_Id          AS twins_identificador_id,
+                mv.Procesos_Id               AS twins_procesos_id,
                 s.Mercaderia_Id              AS twins_mercaderia_id,
                 s.nCantidad                  AS cantidad,
                 s.iPeso                      AS peso_gr,

@@ -2,35 +2,75 @@
 
 Ejecuta el ETL completo para el caso de comparación (faena 2025-01-07 /
 producción 2025-01-08), luego imprime las secciones clave del reporte
-DDJJ_MENUDENCIAS para contrastar contra el CSV de referencia.
+DDJJ_MENUDENCIAS y una tabla de diferencias contra el legacy correcto.
 
 Uso desde reporting-api/:
     python validate_fixes.py [--dry-run]
 
   --dry-run  Sólo consulta las vistas (sin re-ejecutar el ETL).
              Útil si el ETL ya corrió y sólo querés ver el estado actual.
+
+Caso testigo: faena 2025-07-01 / producción 2025-08-01 / 548 cabezas.
+Legacy correcto (DDJJ manual julio 2025):
+    Total: 984 cajas / 10525.65 kg
 """
 from __future__ import annotations
 
 import sys
 from datetime import date
+from decimal import Decimal
 
 from dotenv import load_dotenv
 
 load_dotenv()
 
-DESDE = date(2025, 1, 7)
-HASTA = date(2025, 1, 8)
-FECHA_FAENA = date(2025, 1, 7)
-FECHA_PROD = date(2025, 1, 8)
-PRODUCTO_CLAVE = "IBMCFE030"
+DESDE = date(2025, 7, 1)
+HASTA = date(2025, 8, 1)
+FECHA_FAENA = date(2025, 7, 1)
+FECHA_PROD = date(2025, 8, 1)
 
-# Valores de referencia del CSV de comparación (valores INCORRECTOS del sistema viejo)
-REF_CAJAS_WRONG = 3210
-REF_KG_WRONG = 2847.390
-# Valores esperados correctos (produccion 2025-01-08, faena 2025-01-07)
-REF_CAJAS_OK = 24
-REF_KG_OK = 313.95
+CABEZAS_LEGACY = 548.0
+
+# Tabla completa de referencia legacy (código → (cajas, kg_neto)).
+# Fuente: DDJJ manual julio 2025, hoja faena 07-01 / producción 08-01.
+LEGACY: dict[str, tuple[float, float]] = {
+    "IBMCF3010": (1,   20.00),
+    "IBMCF3039": (4,   72.00),
+    "IBMCF3220": (8,  144.00),
+    "IBMCF3230": (7,  140.00),
+    "IBMCF3400": (1,   20.00),
+    "IBMCFB011": (52, 666.85),
+    "IBMCFE010": (18, 194.85),
+    "IBMCFE020": (31, 372.00),
+    "IBMCFE030": (24, 313.95),
+    "IBMCFE041": (19, 190.00),
+    "IBMCFE042": (10, 120.00),
+    "IBMCFE043": (32, 384.00),
+    "IBMCFE060": (13, 156.00),
+    "IBMCFE070": (56, 560.00),
+    "IBMCFE081": (29, 290.00),
+    "IBMCFE100": (10, 100.00),
+    "IBMCFE140": (63, 630.00),
+    "IBMCFE141": (16, 160.00),
+    "IBMCFE180": (11, 110.00),
+    "IBMCFE210": (291, 2910.00),
+    "IBMCFE240": (29, 290.00),
+    "IBMCFE300": (4,   48.00),
+    "IBMCFE310": (34, 408.00),
+    "IBMCFE320": (4,   48.00),
+    "IBMCFE340": (6,   60.00),
+    "IBMCFE370": (143, 1430.00),
+    "IBMCPE170": (27, 270.00),
+    "IBMCPE171": (20, 200.00),
+    "IBMCPE179": (1,   18.00),
+    "IBMCPE202": (20, 200.00),
+}
+
+LEGACY_TOTAL_CAJAS = sum(v[0] for v in LEGACY.values())   # 984
+LEGACY_TOTAL_KG    = sum(v[1] for v in LEGACY.values())   # 10525.65
+
+# Tolerancia para comparar kg (diferencias de redondeo son normales).
+TOL_KG = 0.10
 
 
 def _run_etl(app):
@@ -149,48 +189,66 @@ def _print_report(app):
             {"f": FECHA_PROD},
         ).fetchall()
 
-        print("=" * 60)
-        print(f"PRODUCCIÓN (fecha_emision={FECHA_PROD}  — fecha_faena en Twins: {FECHA_FAENA})")
-        print("=" * 60)
-        print(f"  {'Código':<14} {'Cajas':>10} {'Kg':>12}  {'⚑' if True else ''}")
-        print(f"  {'-'*14} {'-'*10} {'-'*12}")
-        total_cajas = 0
-        total_kg = 0
-        for r in rows_prod:
-            codigo, desc, cajas, kg = r[0], r[1], float(r[2]), float(r[3])
-            total_cajas += cajas
-            total_kg += kg
-            marker = " ← IBMCFE030" if codigo == PRODUCTO_CLAVE else ""
-            print(f"  {codigo:<14} {cajas:>10.3f} {kg:>12.3f}{marker}")
-        print(f"  {'TOTAL':<14} {total_cajas:>10.3f} {total_kg:>12.3f}")
+        actual: dict[str, tuple[float, float]] = {
+            r[0]: (float(r[2]), float(r[3])) for r in rows_prod
+        }
+
+        print("=" * 70)
+        print(f"PRODUCCIÓN (fecha_emision={FECHA_PROD} / fecha_faena Twins: {FECHA_FAENA})")
+        print("=" * 70)
+        print(f"  {'Código':<14} {'Cajas A':>8} {'Kg A':>10} {'Cajas L':>8} {'Kg L':>10}  Estado")
+        print(f"  {'-'*14} {'-'*8} {'-'*10} {'-'*8} {'-'*10}  ------")
+
+        total_cajas_a = 0.0
+        total_kg_a = 0.0
+        codigos_union = sorted(set(actual) | set(LEGACY))
+        n_ok = n_diff = n_falta = n_extra = 0
+
+        for cod in codigos_union:
+            ca, ka = actual.get(cod, (0.0, 0.0))
+            cl, kl = LEGACY.get(cod, (0.0, 0.0))
+            total_cajas_a += ca
+            total_kg_a += ka
+
+            if cod not in LEGACY:
+                estado = "EXTRA"
+                n_extra += 1
+            elif cod not in actual:
+                estado = "FALTA"
+                n_falta += 1
+            elif abs(ca - cl) <= 1 and abs(ka - kl) <= TOL_KG:
+                estado = "OK"
+                n_ok += 1
+            else:
+                estado = f"DIFF  cajas {ca-cl:+.0f} / kg {ka-kl:+.2f}"
+                n_diff += 1
+
+            print(f"  {cod:<14} {ca:>8.0f} {ka:>10.2f} {cl:>8.0f} {kl:>10.2f}  {estado}")
+
+        print(f"  {'TOTAL':<14} {total_cajas_a:>8.0f} {total_kg_a:>10.2f} "
+              f"{LEGACY_TOTAL_CAJAS:>8.0f} {LEGACY_TOTAL_KG:>10.2f}")
         print()
 
         # ------------------------------------------------------------------
-        # 4. Validación específica IBMCFE030
+        # 4. Resumen de diferencias
         # ------------------------------------------------------------------
-        row_clave = next((r for r in rows_prod if r[0] == PRODUCTO_CLAVE), None)
-        print("=" * 60)
-        print(f"VALIDACIÓN {PRODUCTO_CLAVE} (Lengua Corte Suizo)")
-        print("=" * 60)
-        if row_clave:
-            cajas = float(row_clave[2])
-            kg = float(row_clave[3])
-            print(f"  Cajas actuales   : {cajas:.3f}")
-            print(f"  Cajas esperadas  : {REF_CAJAS_OK:.3f}")
-            print(f"  Cajas incorrectas: {REF_CAJAS_WRONG:.3f}  (valor sistema viejo)")
-            print(f"  Kg actuales      : {kg:.3f}")
-            print(f"  Kg esperados     : {REF_KG_OK:.3f}")
-            print(f"  Kg incorrectos   : {REF_KG_WRONG:.3f}  (valor sistema viejo)")
-            cajas_ok = abs(cajas - REF_CAJAS_OK) <= 1
-            kg_ok    = abs(kg - REF_KG_OK) < 0.1
-            if cajas_ok and kg_ok:
-                print("  [OK] Cajas y Kg coinciden con el valor funcional esperado.")
-            else:
-                diff_c = cajas - REF_CAJAS_OK
-                diff_k = kg - REF_KG_OK
-                print(f"  [!]  Desvío: cajas {diff_c:+.1f}  |  kg {diff_k:+.3f}")
+        print("=" * 70)
+        print("RESUMEN DE DIFERENCIAS vs LEGACY")
+        print("=" * 70)
+        print(f"  Productos OK       : {n_ok}")
+        print(f"  Productos con diff : {n_diff}")
+        print(f"  Productos faltantes: {n_falta}")
+        print(f"  Productos extra    : {n_extra}")
+        diff_cajas = total_cajas_a - LEGACY_TOTAL_CAJAS
+        diff_kg = total_kg_a - LEGACY_TOTAL_KG
+        print(f"  Total cajas  actual={total_cajas_a:.0f}  legacy={LEGACY_TOTAL_CAJAS:.0f}  diff={diff_cajas:+.0f}")
+        print(f"  Total kg     actual={total_kg_a:.2f}  legacy={LEGACY_TOTAL_KG:.2f}  diff={diff_kg:+.2f}")
+        if n_falta == 0 and n_extra == 0 and n_diff == 0:
+            print()
+            print("  [OK] Todos los productos coinciden con el legacy.")
         else:
-            print(f"  (producto {PRODUCTO_CLAVE} no encontrado en la MV para {FECHA_PROD})")
+            print()
+            print("  [!!] Quedan diferencias respecto al legacy. Ver tabla arriba.")
         print()
 
 

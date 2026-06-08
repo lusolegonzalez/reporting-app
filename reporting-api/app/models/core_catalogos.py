@@ -45,6 +45,29 @@ class Mercaderia(db.Model):
     categoria = db.relationship("MercaderiaCategoria")
 
 
+class ProcesoProductivo(db.Model):
+    """Proceso productivo de Twins (Identificador). Catalogo cargado por ETL."""
+
+    __tablename__ = "proceso_productivo"
+    __table_args__ = (
+        db.UniqueConstraint("twins_id", name="uq_proceso_productivo_twins_id"),
+        db.Index("ix_proceso_productivo_twins_id", "twins_id"),
+        {"schema": "core"},
+    )
+
+    id = db.Column(db.BigInteger, primary_key=True)
+    twins_id = db.Column(db.BigInteger, nullable=False)
+    codigo = db.Column(db.Text, nullable=False)
+    descripcion = db.Column(db.Text, nullable=False)
+    vigente = db.Column(db.Boolean, nullable=False, default=True)
+    etl_ejecucion_id_ult = db.Column(db.Integer, nullable=True)
+    actualizado_en = db.Column(
+        db.DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+    )
+
+
 class Operario(db.Model):
     """Operario de Twins (faena / emision)."""
 

@@ -18,12 +18,14 @@ class Salida(db.Model):
         db.Index("ix_salida_mercaderia", "mercaderia_id"),
         db.Index("ix_salida_faena", "faena_id"),
         db.Index("ix_salida_identificador", "twins_identificador_id"),
+        db.Index("ix_salida_proceso", "twins_procesos_id"),
         {"schema": "core"},
     )
 
     id = db.Column(db.BigInteger, primary_key=True)
     twins_movimiento_id = db.Column(db.BigInteger, nullable=False)
     twins_identificador_id = db.Column(db.BigInteger, nullable=False)
+    twins_procesos_id = db.Column(db.BigInteger, nullable=True)  # configuracion.Procesos.Id via Movimientos
     twins_salida_pk = db.Column(db.Text, nullable=False)
     fecha_emision = db.Column(db.Date, nullable=False)
     fecha_creacion = db.Column(db.DateTime(timezone=False), nullable=True)

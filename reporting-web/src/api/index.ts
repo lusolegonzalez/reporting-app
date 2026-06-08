@@ -4,6 +4,7 @@ export { runEtlRequest, getEtlEjecucionEstadoRequest } from './etl';
 export {
   createReportRequest,
   exportReportRequest,
+  getReportCatalogoRequest,
   getReportMetadataRequest,
   getReportVisibilityRequest,
   listReportsRequest,

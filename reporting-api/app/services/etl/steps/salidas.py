@@ -54,18 +54,29 @@ class SalidasStep:
             ident = row.get("twins_identificador_id")
             merc = row.get("twins_mercaderia_id")
             source_pk = f"{mov}-{ident}-{merc}" if (mov and ident) else f"row-{len(filas)}"
+            # dedup_key debe ser unico por linea de Salida (ident + mercaderia).
+            # SIEMPRE incluimos la mercaderia en el key para evitar colisiones
+            # entre productos distintos del mismo animal en la constraint
+            # uq_salida_dedup(fecha_emision, dedup_key). El barcode de Banderitas
+            # es por movimiento completo (animal), no por producto especifico.
+            raw_dedup = (row.get("dedup_key") or "").strip()
+            if raw_dedup:
+                computed_dedup_key: str | None = f"{raw_dedup}|M:{merc}" if merc else raw_dedup
+            else:
+                computed_dedup_key = f"ID:{ident}|M:{merc}" if (ident and merc) else None
             filas.append(
                 {
                     "etl_ejecucion_id": ejecucion_id,
                     "source_pk": source_pk,
                     "twins_movimiento_id": mov,
                     "twins_identificador_id": ident,
+                    "twins_procesos_id": row.get("twins_procesos_id"),
                     "twins_mercaderia_id": merc,
                     "cantidad": row.get("cantidad"),
                     "peso_gr": row.get("peso_gr"),
                     "activa": row.get("activa"),
                     "eliminada": row.get("eliminada"),
-                    "dedup_key": (row.get("dedup_key") or "").strip() or None,
+                    "dedup_key": computed_dedup_key,
                     "fecha_emision": row.get("fecha_emision"),
                     "fecha_creacion": row.get("fecha_creacion"),
                     "twins_operario_id": row.get("twins_operario_id"),
@@ -74,20 +85,10 @@ class SalidasStep:
             )
         result.filas_leidas = len(filas)
 
-        # Dedup por source_pk: el LEFT JOIN a Banderitas puede producir N filas
-        # por cada linea de Salida si hay multiples barcodes activos para el mismo
-        # (Identificador_Id, Movimiento_Id). La source_pk no incluye el barcode,
-        # por lo que colisiona. Nos quedamos con la primera fila (primer barcode).
-        # Cada fila del LEFT JOIN representa 1 etiqueta/banderita = 1 caja
-        # (1 unidad = pieza dentro de una caja). Contamos las filas por source_pk
-        # para obtener la cantidad de cajas. Si no hay banderitas el LEFT JOIN
-        # devuelve igual 1 fila (con dedup_key fallback "ID:<ident>"), por lo
-        # que el conteo minimo es 1.
-        etiquetas_por_pk: dict[str, int] = {}
-        for fila in filas:
-            pk = fila["source_pk"]
-            etiquetas_por_pk[pk] = etiquetas_por_pk.get(pk, 0) + 1
-
+        # Dedup por source_pk: el LEFT JOIN a Banderitas en fetch_salidas puede
+        # producir N filas por linea de Salida cuando hay multiples barcodes activos
+        # para el mismo (Movimiento_Id, Identificador_Id, Mercaderia_Id).
+        # Nos quedamos con la primera fila; cada fila superviviente = 1 caja emitida.
         seen_pk_s: set[str] = set()
         filas_dedup_s: list[dict[str, Any]] = []
         for fila in filas:
@@ -96,9 +97,8 @@ class SalidasStep:
                 filas_dedup_s.append(fila)
         n_dup_s = len(filas) - len(filas_dedup_s)
         if n_dup_s:
-            result.filas_descartadas += n_dup_s
-            logger.warning(
-                "[ETL] SalidasStep: %d filas duplicadas por source_pk descartadas antes del INSERT",
+            logger.info(
+                "[ETL] SalidasStep: %d filas duplicadas por source_pk descartadas (banderitas extra)",
                 n_dup_s,
             )
         filas = filas_dedup_s
@@ -178,13 +178,19 @@ class SalidasStep:
                 )
                 continue
 
-            cantidad_cajas = Decimal(etiquetas_por_pk.get(fila["source_pk"], 1))
+            # cantidad_cajas: cada fila superviviente del dedup representa exactamente
+            # una linea de Salida en Twins = una caja emitida. nCantidad NO es el numero
+            # de cajas sino el numero de piezas/unidades dentro de esa caja.
+            # La MV hace SUM(cantidad_cajas) para contar cajas (= contar filas).
+            # s.iPeso es el peso total de la linea (no por unidad), confirmado por
+            # el legacy que usa SUM(iPeso)/1000 con GROUP BY Mercaderia_Id.
+            cantidad_cajas = Decimal("1")
             peso_kg = _to_decimal(fila["peso_gr"]) / Decimal("1000")
             activa = bool(fila["activa"]) if fila["activa"] is not None else True
             eliminada = bool(fila["eliminada"]) if fila["eliminada"] is not None else False
             vigente = activa and not eliminada
 
-            dedup_key = fila["dedup_key"] or f"ID:{ident}"
+            dedup_key = fila["dedup_key"] or f"ID:{ident}|M:{merc_twins}"
             twins_salida_pk = f"{mov}|{ident}|{merc_twins}"
             faena_id = faena_por_ident.get(int(ident))
             top = fila.get("twins_operario_id")
@@ -195,6 +201,7 @@ class SalidasStep:
                 .values(
                     twins_movimiento_id=int(mov),
                     twins_identificador_id=int(ident),
+                    twins_procesos_id=int(fila["twins_procesos_id"]) if fila.get("twins_procesos_id") is not None else None,
                     twins_salida_pk=twins_salida_pk,
                     fecha_emision=fecha_em,
                     fecha_creacion=fila["fecha_creacion"],
@@ -213,6 +220,7 @@ class SalidasStep:
                     set_={
                         "fecha_emision": text("EXCLUDED.fecha_emision"),
                         "fecha_creacion": text("EXCLUDED.fecha_creacion"),
+                        "twins_procesos_id": text("EXCLUDED.twins_procesos_id"),
                         "mercaderia_id": text("EXCLUDED.mercaderia_id"),
                         "cantidad_cajas": text("EXCLUDED.cantidad_cajas"),
                         "peso_kg": text("EXCLUDED.peso_kg"),
@@ -229,11 +237,19 @@ class SalidasStep:
                 db.session.execute(stmt)
                 result.filas_insertadas += 1
             except Exception as exc:
-                # Tipicamente choque con uq_salida_dedup (otra fila con mismo
-                # fecha_emision + dedup_key). Lo anotamos y seguimos.
+                # Con el fix de dedup_key este bloque no deberia ejecutarse en
+                # condiciones normales. Si ocurre igual (colision inesperada),
+                # logueamos con nivel WARNING para que sea investigable, pero
+                # no descartamos silenciosamente: hacemos rollback del savepoint
+                # y lo registramos como error auditable.
                 db.session.rollback()
                 result.filas_descartadas += 1
                 result.errores.append((fila["source_pk"], f"upsert_failed: {exc!r}"))
+                logger.warning(
+                    "[ETL] SalidasStep: colision inesperada en upsert source_pk=%s: %r",
+                    fila["source_pk"],
+                    exc,
+                )
 
         db.session.commit()
 

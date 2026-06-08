@@ -1,5 +1,5 @@
 from app.models.audit import AuditoriaConsultaReporte
-from app.models.core_catalogos import Mercaderia, Operario
+from app.models.core_catalogos import Mercaderia, Operario, ProcesoProductivo
 from app.models.etl import EjecucionError, EjecucionTabla
 from app.models.execution import EjecucionImportacion
 from app.models.faena import Faena
@@ -31,6 +31,7 @@ __all__ = [
     "MercaderiaClasificacionRegla",
     "Mercaderia",
     "Operario",
+    "ProcesoProductivo",
     "Tropa",
     "Subtropa",
     "Faena",

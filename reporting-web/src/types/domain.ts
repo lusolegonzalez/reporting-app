@@ -29,11 +29,17 @@ export type ReportVisibility = {
 
 export type ReportParameterDef = {
   nombre: string;
-  tipo: 'date' | 'bool' | 'string' | 'int';
+  tipo: 'date' | 'bool' | 'string' | 'int' | 'multiselect';
   requerido: boolean;
   descripcion: string | null;
   valor_por_defecto: unknown;
   etiqueta?: string | null;
+  opciones_url?: string | null;
+};
+
+export type ReportParameterOpcion = {
+  id: string;
+  label: string;
 };
 
 export type ReportMetadata = {

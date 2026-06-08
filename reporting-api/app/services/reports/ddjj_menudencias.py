@@ -118,6 +118,19 @@ class DdjjMenudenciasReport:
             etiqueta="Mostrar tropas",
             descripcion="Incluir listado de tropas. Solo aplica si el rango de fecha de faena es de un único día.",
         ),
+        ReportParameter(
+            nombre="excluir_procesos",
+            tipo="multiselect",
+            requerido=False,
+            valor_por_defecto=None,
+            etiqueta="Excluir procesos productivos",
+            descripcion=(
+                "Procesos productivos a excluir de las cantidades de producción. "
+                "La exclusión impacta en cajas y kg de menudencias y decomisos. "
+                "No afecta las cabezas faenadas."
+            ),
+            opciones_url="/reports/by-codigo/DDJJ_MENUDENCIAS/catalogo/excluir_procesos",
+        ),
     )
 
     # ----- parse + validate -----
@@ -127,6 +140,17 @@ class DdjjMenudenciasReport:
         faena_desde = parse_date(raw.get("fecha_faena_desde"), field_name="fecha_faena_desde", requerido=True)
         faena_hasta = parse_date(raw.get("fecha_faena_hasta"), field_name="fecha_faena_hasta", requerido=True)
         mostrar_tropas = parse_bool(raw.get("mostrar_tropas"), field_name="mostrar_tropas", default=False)
+
+        # Parseo de excluir_procesos: acepta lista de ints o strings numericos.
+        excluir_raw = raw.get("excluir_procesos") or []
+        if isinstance(excluir_raw, str):
+            excluir_raw = [x.strip() for x in excluir_raw.split(",") if x.strip()]
+        excluir_procesos: list[int] = []
+        for v in excluir_raw:
+            try:
+                excluir_procesos.append(int(v))
+            except (ValueError, TypeError):
+                pass  # ignorar valores no numericos
 
         assert prod_desde is not None and prod_hasta is not None
         assert faena_desde is not None and faena_hasta is not None
@@ -159,6 +183,7 @@ class DdjjMenudenciasReport:
                 "fecha_faena_desde": faena_desde,
                 "fecha_faena_hasta": faena_hasta,
                 "mostrar_tropas": mostrar_tropas,
+                "excluir_procesos": excluir_procesos,
             },
             raw_parametros=dict(raw),
         )
@@ -185,6 +210,7 @@ class DdjjMenudenciasReport:
         faena_desde: date = request.parametros["fecha_faena_desde"]
         faena_hasta: date = request.parametros["fecha_faena_hasta"]
         mostrar_tropas: bool = request.parametros["mostrar_tropas"]
+        excluir_procesos: list[int] = request.parametros.get("excluir_procesos") or []
         raw_mostrar_tropas = parse_bool(
             request.raw_parametros.get("mostrar_tropas"),
             field_name="mostrar_tropas",
@@ -227,6 +253,7 @@ class DdjjMenudenciasReport:
             faena_desde=faena_desde,
             faena_hasta=faena_hasta,
             mostrar_tropas=mostrar_tropas,
+            excluir_procesos=excluir_procesos,
         )
 
         if dias_excedidos:
@@ -252,6 +279,7 @@ class DdjjMenudenciasReport:
                 "fecha_faena_desde": faena_desde,
                 "fecha_faena_hasta": faena_hasta,
                 "mostrar_tropas": mostrar_tropas,
+                "excluir_procesos": excluir_procesos,
             },
             secciones=secciones,
             alertas=alertas,
@@ -267,6 +295,7 @@ class DdjjMenudenciasReport:
         faena_desde: date,
         faena_hasta: date,
         mostrar_tropas: bool,
+        excluir_procesos: list[int],
     ) -> tuple[list[ReportSection], list[date]]:
         es_diario = faena_desde == faena_hasta
 
@@ -290,22 +319,49 @@ class DdjjMenudenciasReport:
         # ---- Produccion por codigo (MENUDENCIA + DECOMISO) en el rango de PRODUCCION ----
         # Nota: en mv_ddjj_menudencias_diaria la columna "fecha_faena" mapea en
         # realidad a core.salida.fecha_emision (= fecha de produccion).
-        prod_rows = db.session.execute(
-            sa.text(
-                """
-                SELECT mercaderia_codigo,
-                       MAX(mercaderia_descripcion) AS mercaderia_descripcion,
-                       categoria,
-                       SUM(cajas)   AS cajas,
-                       SUM(kg_neto) AS kg_neto
-                  FROM reporting.mv_ddjj_menudencias_diaria
-                 WHERE fecha_faena BETWEEN :desde AND :hasta
-                 GROUP BY mercaderia_codigo, categoria
-                 ORDER BY mercaderia_codigo
-                """
-            ),
-            {"desde": prod_desde, "hasta": prod_hasta},
-        ).mappings().all()
+        # Cuando hay exclusion de procesos se evita la MV y se consulta core.salida
+        # directamente con el filtro NOT IN sobre twins_procesos_id
+        # (= configuracion.Procesos.Id obtenido via Movimientos.Procesos_Id).
+        if excluir_procesos:
+            prod_rows = db.session.execute(
+                sa.text(
+                    """
+                    SELECT
+                        m.codigo                        AS mercaderia_codigo,
+                        MAX(m.descripcion)              AS mercaderia_descripcion,
+                        cat.codigo                      AS categoria,
+                        SUM(s.cantidad_cajas)::NUMERIC(18,3) AS cajas,
+                        SUM(s.peso_kg)::NUMERIC(18,3)   AS kg_neto
+                      FROM core.salida s
+                      JOIN core.mercaderia m ON m.id = s.mercaderia_id
+                      JOIN core.mercaderia_categoria cat ON cat.id = m.categoria_id
+                     WHERE s.vigente = TRUE
+                       AND cat.codigo IN ('MENUDENCIA','DECOMISO')
+                       AND s.fecha_emision BETWEEN :desde AND :hasta
+                       AND (s.twins_procesos_id IS NULL OR s.twins_procesos_id != ALL(:excluir_ids))
+                     GROUP BY m.codigo, cat.codigo
+                     ORDER BY m.codigo
+                    """
+                ),
+                {"desde": prod_desde, "hasta": prod_hasta, "excluir_ids": excluir_procesos},
+            ).mappings().all()
+        else:
+            prod_rows = db.session.execute(
+                sa.text(
+                    """
+                    SELECT mercaderia_codigo,
+                           MAX(mercaderia_descripcion) AS mercaderia_descripcion,
+                           categoria,
+                           SUM(cajas)   AS cajas,
+                           SUM(kg_neto) AS kg_neto
+                      FROM reporting.mv_ddjj_menudencias_diaria
+                     WHERE fecha_faena BETWEEN :desde AND :hasta
+                     GROUP BY mercaderia_codigo, categoria
+                     ORDER BY mercaderia_codigo
+                    """
+                ),
+                {"desde": prod_desde, "hasta": prod_hasta},
+            ).mappings().all()
 
         # ---- Seccion DIARIA: solo cuando rango de faena = 1 dia ----
         seccion_diaria: ReportSection | None = None
@@ -315,22 +371,45 @@ class DdjjMenudenciasReport:
             kg_diaria = Decimal("0")
             # Las filas del dia se toman del rango de produccion para soportar
             # el caso del Excel modelo: faena del dia X, produccion del dia X+1.
-            dia_rows = db.session.execute(
-                sa.text(
-                    """
-                    SELECT mercaderia_codigo,
-                           MAX(mercaderia_descripcion) AS mercaderia_descripcion,
-                           SUM(cajas)   AS cajas,
-                           SUM(kg_neto) AS kg_neto
-                      FROM reporting.mv_ddjj_menudencias_diaria
-                     WHERE fecha_faena BETWEEN :desde AND :hasta
-                       AND categoria = 'MENUDENCIA'
-                     GROUP BY mercaderia_codigo
-                     ORDER BY mercaderia_codigo
-                    """
-                ),
-                {"desde": prod_desde, "hasta": prod_hasta},
-            ).mappings().all()
+            if excluir_procesos:
+                dia_rows = db.session.execute(
+                    sa.text(
+                        """
+                        SELECT
+                            m.codigo                        AS mercaderia_codigo,
+                            MAX(m.descripcion)              AS mercaderia_descripcion,
+                            SUM(s.cantidad_cajas)::NUMERIC(18,3) AS cajas,
+                            SUM(s.peso_kg)::NUMERIC(18,3)   AS kg_neto
+                          FROM core.salida s
+                          JOIN core.mercaderia m ON m.id = s.mercaderia_id
+                          JOIN core.mercaderia_categoria cat ON cat.id = m.categoria_id
+                         WHERE s.vigente = TRUE
+                           AND cat.codigo = 'MENUDENCIA'
+                           AND s.fecha_emision BETWEEN :desde AND :hasta
+                           AND (s.twins_procesos_id IS NULL OR s.twins_procesos_id != ALL(:excluir_ids))
+                         GROUP BY m.codigo
+                         ORDER BY m.codigo
+                        """
+                    ),
+                    {"desde": prod_desde, "hasta": prod_hasta, "excluir_ids": excluir_procesos},
+                ).mappings().all()
+            else:
+                dia_rows = db.session.execute(
+                    sa.text(
+                        """
+                        SELECT mercaderia_codigo,
+                               MAX(mercaderia_descripcion) AS mercaderia_descripcion,
+                               SUM(cajas)   AS cajas,
+                               SUM(kg_neto) AS kg_neto
+                          FROM reporting.mv_ddjj_menudencias_diaria
+                         WHERE fecha_faena BETWEEN :desde AND :hasta
+                           AND categoria = 'MENUDENCIA'
+                         GROUP BY mercaderia_codigo
+                         ORDER BY mercaderia_codigo
+                        """
+                    ),
+                    {"desde": prod_desde, "hasta": prod_hasta},
+                ).mappings().all()
             for r in dia_rows:
                 cajas = r["cajas"] or Decimal("0")
                 kg = r["kg_neto"] or Decimal("0")

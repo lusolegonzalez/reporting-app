@@ -17,6 +17,10 @@ class TwinsSource(Protocol):
         """Catalogo completo de mercaderias (no requiere ventana)."""
         ...
 
+    def fetch_procesos(self) -> Iterable[dict[str, Any]]:
+        """Catalogo de procesos productivos desde configuracion.Procesos (no requiere ventana)."""
+        ...
+
     def fetch_operarios(self) -> Iterable[dict[str, Any]]:
         ...
 

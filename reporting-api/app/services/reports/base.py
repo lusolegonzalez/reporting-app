@@ -45,15 +45,19 @@ class ReportParameter:
     """Descripcion estructurada de un parametro de reporte."""
 
     nombre: str
-    tipo: str  # "date" | "bool" | "string" | "int"
+    tipo: str  # "date" | "bool" | "string" | "int" | "multiselect"
     requerido: bool = False
     descripcion: str | None = None
     valor_por_defecto: Any = None
     # Etiqueta legible para mostrar en la UI. Si es None, el frontend usa `nombre`.
     etiqueta: str | None = None
+    # URL relativa (sin /api/v1) al endpoint que devuelve las opciones del
+    # multiselect. Solo aplica cuando tipo="multiselect".
+    # Ejemplo: "/reports/by-codigo/DDJJ_MENUDENCIAS/catalogo/excluir_procesos"
+    opciones_url: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        d: dict[str, Any] = {
             "nombre": self.nombre,
             "tipo": self.tipo,
             "requerido": self.requerido,
@@ -61,6 +65,9 @@ class ReportParameter:
             "valor_por_defecto": self.valor_por_defecto,
             "etiqueta": self.etiqueta,
         }
+        if self.opciones_url is not None:
+            d["opciones_url"] = self.opciones_url
+        return d
 
 
 @dataclass

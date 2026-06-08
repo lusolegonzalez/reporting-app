@@ -249,6 +249,21 @@ button:disabled {
   gap: 0.5rem;
 }
 
+.multiselect-fieldset {
+  border: 1px solid #c9d6df;
+  border-radius: 6px;
+  padding: 0.5rem 0.8rem 0.7rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.multiselect-fieldset legend {
+  font-weight: 600;
+  padding: 0 0.3rem;
+  font-size: 0.9rem;
+}
+
 .form-actions {
   display: flex;
   gap: 0.6rem;

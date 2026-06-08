@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 
 import {
+  getReportCatalogoRequest,
   getReportMetadataRequest,
   runReportRequest,
   exportReportRequest,
@@ -11,6 +12,7 @@ import type {
   ReportAlerta,
   ReportMetadata,
   ReportParameterDef,
+  ReportParameterOpcion,
   ReportResponse,
   ReportSection,
 } from '@/types';
@@ -30,7 +32,8 @@ const formatValue = (value: unknown): string => {
   return String(value);
 };
 
-const initialValueFor = (parametro: ReportParameterDef): string | boolean => {
+const initialValueFor = (parametro: ReportParameterDef): string | boolean | string[] => {
+  if (parametro.tipo === 'multiselect') return [];
   if (parametro.valor_por_defecto !== null && parametro.valor_por_defecto !== undefined) {
     if (parametro.tipo === 'bool') return Boolean(parametro.valor_por_defecto);
     return String(parametro.valor_por_defecto);
@@ -41,11 +44,15 @@ const initialValueFor = (parametro: ReportParameterDef): string | boolean => {
 
 const buildPayload = (
   parametros: ReportParameterDef[],
-  values: Record<string, string | boolean>,
+  values: Record<string, string | boolean | string[]>,
 ): Record<string, unknown> => {
   const payload: Record<string, unknown> = {};
   parametros.forEach((p) => {
     const raw = values[p.nombre];
+    if (p.tipo === 'multiselect') {
+      payload[p.nombre] = Array.isArray(raw) ? raw : [];
+      return;
+    }
     if (p.tipo === 'bool') {
       payload[p.nombre] = Boolean(raw);
       return;
@@ -186,7 +193,11 @@ export const ReportRunner = ({ codigo }: ReportRunnerProps) => {
   const [metadataError, setMetadataError] = useState<string | null>(null);
   const [isLoadingMetadata, setIsLoadingMetadata] = useState(true);
 
-  const [values, setValues] = useState<Record<string, string | boolean>>({});
+  const [values, setValues] = useState<Record<string, string | boolean | string[]>>({});
+  // Opciones cargadas dinamicamente para parametros tipo multiselect.
+  const [multiselectOpciones, setMultiselectOpciones] = useState<
+    Record<string, ReportParameterOpcion[]>
+  >({});
 
   const [result, setResult] = useState<ReportResponse | null>(null);
   const [runError, setRunError] = useState<string | null>(null);
@@ -217,11 +228,28 @@ export const ReportRunner = ({ codigo }: ReportRunnerProps) => {
         setMetadataError(null);
         const data = await getReportMetadataRequest(codigo);
         setMetadata(data);
-        const initial: Record<string, string | boolean> = {};
+        const initial: Record<string, string | boolean | string[]> = {};
         data.parametros.forEach((p) => {
           initial[p.nombre] = initialValueFor(p);
         });
         setValues(initial);
+
+        // Cargar opciones para parametros tipo multiselect.
+        const multiselectParams = data.parametros.filter((p) => p.tipo === 'multiselect');
+        if (multiselectParams.length > 0) {
+          const opcionesMap: Record<string, ReportParameterOpcion[]> = {};
+          await Promise.all(
+            multiselectParams.map(async (p) => {
+              try {
+                const items = await getReportCatalogoRequest(codigo, p.nombre);
+                opcionesMap[p.nombre] = items;
+              } catch {
+                opcionesMap[p.nombre] = [];
+              }
+            }),
+          );
+          setMultiselectOpciones(opcionesMap);
+        }
       } catch (err) {
         if (axios.isAxiosError(err)) {
           setMetadataError(err.response?.data?.message ?? 'No se pudo cargar la configuración del reporte.');
@@ -242,7 +270,7 @@ export const ReportRunner = ({ codigo }: ReportRunnerProps) => {
     [metadata],
   );
 
-  const updateValue = (nombre: string, value: string | boolean) => {
+  const updateValue = (nombre: string, value: string | boolean | string[]) => {
     setValues((current) => ({ ...current, [nombre]: value }));
   };
 
@@ -411,6 +439,36 @@ export const ReportRunner = ({ codigo }: ReportRunnerProps) => {
                     />
                     {label}
                   </label>
+                );
+              }
+              if (p.tipo === 'multiselect') {
+                const opciones = multiselectOpciones[p.nombre] ?? [];
+                const selected = (values[p.nombre] as string[] | undefined) ?? [];
+                const toggleOpcion = (id: string) => {
+                  const next = selected.includes(id)
+                    ? selected.filter((v) => v !== id)
+                    : [...selected, id];
+                  updateValue(p.nombre, next);
+                };
+                return (
+                  <fieldset key={p.nombre} className="multiselect-fieldset">
+                    <legend>{label}</legend>
+                    {p.descripcion && <small className="section-note">{p.descripcion}</small>}
+                    {opciones.length === 0 ? (
+                      <span className="section-note">Cargando opciones…</span>
+                    ) : (
+                      opciones.map((op) => (
+                        <label key={op.id} className="checkbox-label">
+                          <input
+                            type="checkbox"
+                            checked={selected.includes(op.id)}
+                            onChange={() => toggleOpcion(op.id)}
+                          />
+                          {op.label}
+                        </label>
+                      ))
+                    )}
+                  </fieldset>
                 );
               }
               return (

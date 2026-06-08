@@ -6,6 +6,7 @@ from flask_jwt_extended import current_user, jwt_required
 
 from app.extensions import db
 from app.models import Reporte, Rol, RolReportePermiso
+from app.models.core_catalogos import ProcesoProductivo
 from app.services.audit import record_report_query
 from app.services.etl.availability import (
     find_active_execution,
@@ -316,6 +317,53 @@ def get_report_metadata(codigo: str):
         ),
         200,
     )
+
+
+# ---------------------------------------------------------------------------
+# Catalogo de opciones para parametros tipo multiselect
+# ---------------------------------------------------------------------------
+
+# Mapa: (codigo_reporte, nombre_parametro) -> funcion que retorna lista de opciones.
+# Cada opcion es {"id": <valor_para_payload>, "label": <texto_visible>}.
+# Extender aqui cuando otro reporte necesite un multiselect propio.
+
+def _catalogo_excluir_procesos() -> list[dict]:
+    items = (
+        ProcesoProductivo.query
+        .filter_by(vigente=True)
+        .order_by(ProcesoProductivo.descripcion.asc())
+        .all()
+    )
+    return [
+        {"id": str(pp.twins_id), "label": pp.descripcion or pp.codigo or str(pp.twins_id)}
+        for pp in items
+    ]
+
+
+_CATALOGOS: dict[tuple[str, str], object] = {
+    ("DDJJ_MENUDENCIAS", "excluir_procesos"): _catalogo_excluir_procesos,
+}
+
+
+@reports_bp.get("/by-codigo/<string:codigo>/catalogo/<string:nombre_parametro>")
+@jwt_required()
+def get_report_catalogo(codigo: str, nombre_parametro: str):
+    """Devuelve las opciones disponibles para un parametro tipo multiselect."""
+    result = _get_report_or_404(codigo)
+    if isinstance(result, tuple):
+        return result
+    report: Reporte = result
+
+    if not _user_can_view(current_user, report):
+        return jsonify({"message": "Sin permiso para visualizar este reporte."}), 403
+
+    key = (report.codigo, nombre_parametro)
+    fn = _CATALOGOS.get(key)
+    if fn is None:
+        return jsonify({"message": "Catálogo no disponible para este parámetro."}), 404
+
+    items = fn()  # type: ignore[operator]
+    return jsonify({"items": items}), 200
 
 
 @reports_bp.post("/by-codigo/<string:codigo>/run")
