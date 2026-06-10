@@ -1,80 +1,93 @@
-"""Script de validación post-fix.
+"""Script de validación post-fix (multi-caso).
 
-Ejecuta el ETL completo para el caso de comparación (faena 2025-01-07 /
-producción 2025-01-08), luego imprime las secciones clave del reporte
-DDJJ_MENUDENCIAS y una tabla de diferencias contra el legacy correcto.
+Para cada caso testigo ejecuta el ETL (faena+salidas) sobre el rango que
+cubre faena y producción, refresca las vistas materializadas y compara la
+producción de menudencias contra el legacy DDJJ correcto.
 
 Uso desde reporting-api/:
     python validate_fixes.py [--dry-run]
 
-  --dry-run  Sólo consulta las vistas (sin re-ejecutar el ETL).
+  --dry-run  Sólo consulta las vistas (sin re-ejecutar el ETL ni refrescar).
              Útil si el ETL ya corrió y sólo querés ver el estado actual.
 
-Caso testigo: faena 2025-07-01 / producción 2025-08-01 / 548 cabezas.
-Legacy correcto (DDJJ manual julio 2025):
-    Total: 984 cajas / 10525.65 kg
+Casos testigo (faena → producción) y total legacy esperado:
+    15-10 : faena 2025-10-15 / prod 2025-10-16 ->   826 cajas /  9055.75 kg
+    17-09 : faena 2025-09-17 / prod 2025-09-18 ->  1001 cajas / 10870.51 kg
+    21-01 : faena 2025-01-21 / prod 2025-01-22 ->   518 cajas /  5759.55 kg
 """
 from __future__ import annotations
 
 import sys
 from datetime import date
-from decimal import Decimal
 
 from dotenv import load_dotenv
 
 load_dotenv()
 
-DESDE = date(2025, 7, 1)
-HASTA = date(2025, 8, 1)
-FECHA_FAENA = date(2025, 7, 1)
-FECHA_PROD = date(2025, 8, 1)
-
-CABEZAS_LEGACY = 548.0
-
-# Tabla completa de referencia legacy (código → (cajas, kg_neto)).
-# Fuente: DDJJ manual julio 2025, hoja faena 07-01 / producción 08-01.
-LEGACY: dict[str, tuple[float, float]] = {
-    "IBMCF3010": (1,   20.00),
-    "IBMCF3039": (4,   72.00),
-    "IBMCF3220": (8,  144.00),
-    "IBMCF3230": (7,  140.00),
-    "IBMCF3400": (1,   20.00),
-    "IBMCFB011": (52, 666.85),
-    "IBMCFE010": (18, 194.85),
-    "IBMCFE020": (31, 372.00),
-    "IBMCFE030": (24, 313.95),
-    "IBMCFE041": (19, 190.00),
-    "IBMCFE042": (10, 120.00),
-    "IBMCFE043": (32, 384.00),
-    "IBMCFE060": (13, 156.00),
-    "IBMCFE070": (56, 560.00),
-    "IBMCFE081": (29, 290.00),
-    "IBMCFE100": (10, 100.00),
-    "IBMCFE140": (63, 630.00),
-    "IBMCFE141": (16, 160.00),
-    "IBMCFE180": (11, 110.00),
-    "IBMCFE210": (291, 2910.00),
-    "IBMCFE240": (29, 290.00),
-    "IBMCFE300": (4,   48.00),
-    "IBMCFE310": (34, 408.00),
-    "IBMCFE320": (4,   48.00),
-    "IBMCFE340": (6,   60.00),
-    "IBMCFE370": (143, 1430.00),
-    "IBMCPE170": (27, 270.00),
-    "IBMCPE171": (20, 200.00),
-    "IBMCPE179": (1,   18.00),
-    "IBMCPE202": (20, 200.00),
-}
-
-LEGACY_TOTAL_CAJAS = sum(v[0] for v in LEGACY.values())   # 984
-LEGACY_TOTAL_KG    = sum(v[1] for v in LEGACY.values())   # 10525.65
-
-# Tolerancia para comparar kg (diferencias de redondeo son normales).
+# Tolerancias (redondeo): cajas exactas (±1) y kg ±0.10.
+TOL_CAJAS = 1
 TOL_KG = 0.10
 
 
-def _run_etl(app):
-    """Ejecuta el ETL usando SQL Server real para el rango DESDE→HASTA."""
+# Cada caso: etiqueta, fecha_faena, fecha_produccion, tabla legacy {codigo: (cajas, kg)}.
+CASES: list[dict] = [
+    {
+        "label": "15-10",
+        "faena": date(2025, 10, 15),
+        "prod": date(2025, 10, 16),
+        "legacy": {
+            "IBMCF3039": (1, 18), "IBMCF3090": (53, 689), "IBMCF3161": (13, 208),
+            "IBMCF3180": (8, 112), "IBMCF3230": (4, 80), "IBMCF3250": (3, 48),
+            "IBMCFC020": (32, 384), "IBMCFC221": (5, 60), "IBMCFE010": (5, 50),
+            "IBMCFE030": (19, 239), "IBMCFE041": (30, 300), "IBMCFE042": (10, 120),
+            "IBMCFE043": (31, 372), "IBMCFE050": (2, 25.95), "IBMCFE060": (6, 72),
+            "IBMCFE070": (42, 420), "IBMCFE081": (18, 180), "IBMCFE100": (11, 110),
+            "IBMCFE140": (26, 260), "IBMCFE141": (11, 110), "IBMCFE210": (223, 2230),
+            "IBMCFE300": (6, 72), "IBMCFE310": (61, 732), "IBMCFE320": (6, 72),
+            "IBMCFE340": (12, 120), "IBMCFE370": (37, 370), "IBMCFE371": (42, 420),
+            "IBMCFE410": (3, 36), "IBMCHE010": (63, 699.8), "IBMCPE170": (13, 130),
+            "IBMCPE171": (16, 160), "IBMCPE179": (2, 36), "IBMCPE202": (12, 120),
+        },
+    },
+    {
+        "label": "17-09",
+        "faena": date(2025, 9, 17),
+        "prod": date(2025, 9, 18),
+        "legacy": {
+            "FBMCFR110": (11, 87.211), "IBMCF3039": (5, 90), "IBMCF3090": (67, 871),
+            "IBMCF3161": (17, 272), "IBMCF3180": (14, 196), "IBMCF3230": (8, 160),
+            "IBMCFC020": (19, 228), "IBMCFC221": (8, 96), "IBMCFE010": (26, 260),
+            "IBMCFE030": (28, 330.4), "IBMCFE041": (20, 200), "IBMCFE042": (12, 144),
+            "IBMCFE043": (34, 408), "IBMCFE050": (1, 12.1), "IBMCFE060": (9, 108),
+            "IBMCFE070": (49, 490), "IBMCFE081": (24, 240), "IBMCFE100": (22, 220),
+            "IBMCFE140": (38, 380), "IBMCFE141": (14, 140), "IBMCFE210": (310, 3100),
+            "IBMCFE300": (4, 48), "IBMCFE310": (37, 444), "IBMCFE320": (5, 60),
+            "IBMCFE340": (6, 60), "IBMCFE370": (20, 200), "IBMCFE371": (67, 670),
+            "IBMCFE410": (3, 36), "IBMCHE010": (59, 647.8), "IBMCPE170": (19, 190),
+            "IBMCPE171": (25, 250), "IBMCPE179": (4, 72), "IBMCPE202": (16, 160),
+        },
+    },
+    {
+        "label": "21-01",
+        "faena": date(2025, 1, 21),
+        "prod": date(2025, 1, 22),
+        "legacy": {
+            "IBMCF3020": (8, 128), "IBMCF3039": (2, 36), "IBMCF3090": (46, 598),
+            "IBMCF3161": (9, 144), "IBMCF3180": (6, 84), "IBMCF3220": (3, 54),
+            "IBMCF3230": (4, 80), "IBMCF3400": (1, 20), "IBMCFB011": (34, 422.7),
+            "IBMCFE030": (15, 178.85), "IBMCFE041": (10, 100), "IBMCFE042": (6, 72),
+            "IBMCFE043": (16, 192), "IBMCFE060": (9, 108), "IBMCFE070": (28, 280),
+            "IBMCFE081": (17, 170), "IBMCFE100": (3, 30), "IBMCFE140": (30, 300),
+            "IBMCFE141": (8, 80), "IBMCFE210": (146, 1460), "IBMCFE240": (11, 110),
+            "IBMCFE300": (3, 36), "IBMCFE310": (17, 204), "IBMCFE320": (2, 24),
+            "IBMCFE340": (2, 20), "IBMCFE370": (54, 540), "IBMCPE170": (6, 60),
+            "IBMCPE171": (13, 130), "IBMCPE179": (1, 18), "IBMCPE202": (8, 80),
+        },
+    },
+]
+
+
+def _run_etl_for(app, desde: date, hasta: date) -> None:
     from app.services.etl.runner import run_etl
     from app.services.etl.sources.sql_server import SqlServerTwinsSource
     from flask import current_app
@@ -83,187 +96,113 @@ def _run_etl(app):
         cfg = current_app.config
         if not (cfg.get("MSSQL_SERVER") or "").strip():
             print("[!] MSSQL_SERVER no configurado — imposible conectar a Twins.")
-            print("    Asegurate de tener el .env con las credenciales de SQL Server.")
             sys.exit(1)
-
-        print(f"Conectando a {cfg['MSSQL_SERVER']} / {cfg['MSSQL_DATABASE']} …")
         try:
             source = SqlServerTwinsSource.from_flask_config(cfg)
         except Exception as exc:
             print(f"[!] Error al crear SqlServerTwinsSource: {exc}")
             sys.exit(1)
-
-        print(f"Ejecutando ETL: {DESDE} → {HASTA} …\n")
+        print(f"  ETL {desde} → {hasta} …")
         try:
-            resumen = run_etl(
-                source=source,
-                desde=DESDE,
-                hasta=HASTA,
-                origen="TwinsDbQuatro045",
-            )
+            resumen = run_etl(source=source, desde=desde, hasta=hasta, origen="TwinsDbQuatro045")
         except Exception as exc:
-            print(f"[!] ETL falló: {exc}")
+            print(f"  [!] ETL falló: {exc}")
             sys.exit(1)
-
-        print(f"ETL finalizado — ejecucion_id={resumen.ejecucion_id}  estado={resumen.estado}")
-        for paso in resumen.pasos:
-            ok = paso.filas_insertadas
-            err = paso.filas_descartadas
-            print(f"  {paso.tabla_destino:<30}  +{ok}  err={err}")
-            if paso.errores:
-                for pk, msg in paso.errores[:3]:
-                    print(f"    ⚠  {pk}: {msg}")
-                if len(paso.errores) > 3:
-                    print(f"    … y {len(paso.errores) - 3} más")
-        print()
+        print(f"  ETL ok (ejecucion_id={resumen.ejecucion_id}, estado={resumen.estado})")
 
 
-def _print_report(app):
-    """Consulta las MVs y muestra las secciones relevantes del reporte."""
+def _check_case(app, case: dict) -> bool:
     from sqlalchemy import text
     from app.extensions import db
 
+    legacy: dict[str, tuple[float, float]] = case["legacy"]
+    leg_cajas = sum(v[0] for v in legacy.values())
+    leg_kg = sum(v[1] for v in legacy.values())
+
     with app.app_context():
-        # ------------------------------------------------------------------
-        # 1. Tropas
-        # ------------------------------------------------------------------
-        rows_tropas = db.session.execute(
+        rows = db.session.execute(
             text(
-                "SELECT numero_tropa, cabezas "
-                "FROM reporting.mv_tropas_por_faena_diaria "
-                "WHERE fecha_faena = :f "
-                "ORDER BY numero_tropa"
-            ),
-            {"f": FECHA_FAENA},
-        ).fetchall()
-
-        print("=" * 60)
-        print(f"TROPAS (fecha_faena={FECHA_FAENA})")
-        print("=" * 60)
-        if rows_tropas:
-            for r in rows_tropas:
-                print(f"  Tropa {r[0]:<12}  medias={r[1]}")
-            # Mostrar cuántas tropas y si los números parecen correctos
-            primeros = [r[0] for r in rows_tropas[:5]]
-            son_secuenciales = all(t.isdigit() and int(t) < 20000 for t in primeros)
-            if son_secuenciales:
-                print("\n  [!] Los números de tropa parecen IDs de BD (ej. 16161).")
-                print("      Verificar que nNroTropa existe en IngresoHacienda.")
-            else:
-                print(f"\n  [OK] {len(rows_tropas)} tropas con números reales.")
-        else:
-            print("  (sin filas — la MV no tiene datos para esta fecha_faena)")
-        print()
-
-        # ------------------------------------------------------------------
-        # 2. Faena / cabezas
-        # ------------------------------------------------------------------
-        row_faena = db.session.execute(
-            text(
-                "SELECT cabezas FROM reporting.mv_faena_diaria "
-                "WHERE fecha_faena = :f"
-            ),
-            {"f": FECHA_FAENA},
-        ).fetchone()
-
-        medias = row_faena[0] if row_faena else 0
-        cabezas = float(medias) / 2
-        print(f"CABEZAS (medias={medias})  →  cabezas={cabezas}")
-        print(f"  Referencia: 548.0  |  Actual: {cabezas}")
-        print()
-
-        # ------------------------------------------------------------------
-        # 3. Producción de menudencias
-        # ------------------------------------------------------------------
-        rows_prod = db.session.execute(
-            text(
-                "SELECT mercaderia_codigo, mercaderia_descripcion, "
+                "SELECT mercaderia_codigo, "
                 "       SUM(cajas)::numeric(18,3) AS cajas, "
                 "       SUM(kg_neto)::numeric(18,3) AS kg "
                 "FROM reporting.mv_ddjj_menudencias_diaria "
-                "WHERE fecha_faena = :f "
-                "  AND categoria = 'MENUDENCIA' "
-                "GROUP BY mercaderia_codigo, mercaderia_descripcion "
-                "ORDER BY mercaderia_codigo"
+                "WHERE fecha_faena = :f AND categoria = 'MENUDENCIA' "
+                "GROUP BY mercaderia_codigo"
             ),
-            {"f": FECHA_PROD},
+            {"f": case["prod"]},
         ).fetchall()
+        actual = {r[0]: (float(r[1]), float(r[2])) for r in rows}
 
-        actual: dict[str, tuple[float, float]] = {
-            r[0]: (float(r[2]), float(r[3])) for r in rows_prod
-        }
-
-        print("=" * 70)
-        print(f"PRODUCCIÓN (fecha_emision={FECHA_PROD} / fecha_faena Twins: {FECHA_FAENA})")
-        print("=" * 70)
-        print(f"  {'Código':<14} {'Cajas A':>8} {'Kg A':>10} {'Cajas L':>8} {'Kg L':>10}  Estado")
-        print(f"  {'-'*14} {'-'*8} {'-'*10} {'-'*8} {'-'*10}  ------")
-
-        total_cajas_a = 0.0
-        total_kg_a = 0.0
-        codigos_union = sorted(set(actual) | set(LEGACY))
-        n_ok = n_diff = n_falta = n_extra = 0
-
-        for cod in codigos_union:
-            ca, ka = actual.get(cod, (0.0, 0.0))
-            cl, kl = LEGACY.get(cod, (0.0, 0.0))
-            total_cajas_a += ca
-            total_kg_a += ka
-
-            if cod not in LEGACY:
-                estado = "EXTRA"
-                n_extra += 1
-            elif cod not in actual:
-                estado = "FALTA"
-                n_falta += 1
-            elif abs(ca - cl) <= 1 and abs(ka - kl) <= TOL_KG:
-                estado = "OK"
-                n_ok += 1
-            else:
-                estado = f"DIFF  cajas {ca-cl:+.0f} / kg {ka-kl:+.2f}"
-                n_diff += 1
-
-            print(f"  {cod:<14} {ca:>8.0f} {ka:>10.2f} {cl:>8.0f} {kl:>10.2f}  {estado}")
-
-        print(f"  {'TOTAL':<14} {total_cajas_a:>8.0f} {total_kg_a:>10.2f} "
-              f"{LEGACY_TOTAL_CAJAS:>8.0f} {LEGACY_TOTAL_KG:>10.2f}")
-        print()
-
-        # ------------------------------------------------------------------
-        # 4. Resumen de diferencias
-        # ------------------------------------------------------------------
-        print("=" * 70)
-        print("RESUMEN DE DIFERENCIAS vs LEGACY")
-        print("=" * 70)
-        print(f"  Productos OK       : {n_ok}")
-        print(f"  Productos con diff : {n_diff}")
-        print(f"  Productos faltantes: {n_falta}")
-        print(f"  Productos extra    : {n_extra}")
-        diff_cajas = total_cajas_a - LEGACY_TOTAL_CAJAS
-        diff_kg = total_kg_a - LEGACY_TOTAL_KG
-        print(f"  Total cajas  actual={total_cajas_a:.0f}  legacy={LEGACY_TOTAL_CAJAS:.0f}  diff={diff_cajas:+.0f}")
-        print(f"  Total kg     actual={total_kg_a:.2f}  legacy={LEGACY_TOTAL_KG:.2f}  diff={diff_kg:+.2f}")
-        if n_falta == 0 and n_extra == 0 and n_diff == 0:
-            print()
-            print("  [OK] Todos los productos coinciden con el legacy.")
+    print("=" * 72)
+    print(f"CASO {case['label']}  (faena {case['faena']} / prod {case['prod']})")
+    print("=" * 72)
+    print(f"  {'Código':<12} {'CajasA':>7} {'KgA':>9} {'CajasL':>7} {'KgL':>9}  Estado")
+    n_ok = n_diff = n_falta = n_extra = 0
+    tot_ca = tot_ka = 0.0
+    for cod in sorted(set(actual) | set(legacy)):
+        ca, ka = actual.get(cod, (0.0, 0.0))
+        cl, kl = legacy.get(cod, (0.0, 0.0))
+        tot_ca += ca
+        tot_ka += ka
+        if cod not in legacy:
+            estado, n_extra = "EXTRA", n_extra + 1
+        elif cod not in actual:
+            estado, n_falta = "FALTA", n_falta + 1
+        elif abs(ca - cl) <= TOL_CAJAS and abs(ka - kl) <= TOL_KG:
+            estado, n_ok = "OK", n_ok + 1
         else:
-            print()
-            print("  [!!] Quedan diferencias respecto al legacy. Ver tabla arriba.")
-        print()
+            estado, n_diff = f"DIFF cajas {ca-cl:+.0f} / kg {ka-kl:+.2f}", n_diff + 1
+        if estado != "OK":
+            print(f"  {cod:<12} {ca:>7.0f} {ka:>9.2f} {cl:>7.0f} {kl:>9.2f}  {estado}")
+    print(f"  {'TOTAL':<12} {tot_ca:>7.0f} {tot_ka:>9.2f} {leg_cajas:>7.0f} {leg_kg:>9.2f}")
+    print(f"  OK={n_ok}  DIFF={n_diff}  FALTA={n_falta}  EXTRA={n_extra}")
+    ok = (n_diff == 0 and n_falta == 0 and n_extra == 0
+          and abs(tot_ca - leg_cajas) <= TOL_CAJAS and abs(tot_ka - leg_kg) <= TOL_KG)
+    print("  -> " + ("[OK] coincide con el legacy" if ok else "[!!] quedan diferencias"))
+    print()
+    return ok
 
 
-def main():
+def main() -> None:
     dry_run = "--dry-run" in sys.argv
-
     from app import create_app
     app = create_app()
 
     if not dry_run:
-        _run_etl(app)
+        # Limpieza previa: el ETL hace upsert pero NO invalida filas de
+        # core.salida que dejan de venir en la fuente (p.ej. al aplicar el
+        # filtro Pc_Id). Para una validacion limpia borramos el rango antes
+        # de recargarlo. En produccion, este fix requiere una recarga
+        # equivalente del rango afectado para purgar filas viejas.
+        from sqlalchemy import text as _text
+        from app.extensions import db
+        with app.app_context():
+            for case in CASES:
+                desde = min(case["faena"], case["prod"])
+                hasta = max(case["faena"], case["prod"])
+                db.session.execute(
+                    _text("DELETE FROM core.salida WHERE fecha_emision BETWEEN :d AND :h"),
+                    {"d": desde, "h": hasta},
+                )
+            db.session.commit()
+        for case in CASES:
+            desde = min(case["faena"], case["prod"])
+            hasta = max(case["faena"], case["prod"])
+            _run_etl_for(app, desde, hasta)
+        # refrescar vistas materializadas tras cargar todos los casos
+        from app.services.etl.refresher import refresh_reporting_views
+        with app.app_context():
+            refresh_reporting_views()
+        print()
     else:
         print("[dry-run] Omitiendo ETL — sólo consultando vistas actuales.\n")
 
-    _print_report(app)
+    resultados = [(_check_case(app, c), c["label"]) for c in CASES]
+    fallidos = [lbl for ok, lbl in resultados if not ok]
+    if fallidos:
+        print(f"RESULTADO FINAL: fallaron {fallidos}")
+        sys.exit(1)
+    print("RESULTADO FINAL: los 3 casos coinciden con el legacy. [OK]")
 
 
 if __name__ == "__main__":

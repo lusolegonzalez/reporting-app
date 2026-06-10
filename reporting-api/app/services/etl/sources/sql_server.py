@@ -420,6 +420,14 @@ class SqlServerTwinsSource:
               AND s.bActivo = 1
               AND s.bEliminado = 0
               AND mv.dFecha >= ? AND mv.dFecha < ?
+              -- Filtro "En stock = NO" del legacy (PWR054): se excluyen los
+              -- movimientos de manejo de stock interno que NO son emision real
+              -- de produccion. mv.Pc_Id referencia configuracion.Procesos:
+              --   88 = "Asignacion de PH", 89 = "eliminacion de PH".
+              -- Sin este filtro se cuelan codigos alternativos en stock
+              -- (IBMCFE090/240/290, IBMCFI250) y porciones infladas de codigos
+              -- validos. Verificado contra el legacy DDJJ para 15-10/17-09/21-01.
+              AND mv.Pc_Id NOT IN (88, 89)
         """
         rows = self._query(sql, (desde, hasta_excl))
         _log_result("fetch_salidas", len(rows), desde, hasta)

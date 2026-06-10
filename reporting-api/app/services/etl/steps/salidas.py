@@ -178,16 +178,18 @@ class SalidasStep:
                 )
                 continue
 
-            # cantidad_cajas: corresponde a s.nCantidad de Twins (numero de cajas
-            # en esa linea de Salida). El legacy (appReferencia.py) usa
-            # SUM(s.nCantidad) AS Cajas, confirmando que nCantidad = cajas.
-            # Un mismo identificador puede tener varias Salidas del mismo producto
-            # con distintos nCantidad; cada fila del staging representa una linea
-            # de Salida ya deduplicada por source_pk.
-            # s.iPeso es el peso total de la linea (no por unidad), confirmado por
-            # el legacy que usa SUM(iPeso)/1000 con GROUP BY Mercaderia_Id.
-            raw_cantidad = fila.get("cantidad")
-            cantidad_cajas = _to_decimal(raw_cantidad) if raw_cantidad is not None else Decimal("1")
+            # cantidad_cajas: cada fila de movimientos.Salidas representa UNA caja
+            # fisica (una unidad de embalaje), por lo que cuenta como 1. Esto se
+            # verifico contra el legacy DDJJ para las 3 fechas testigo: CAJAS =
+            # COUNT(*) de filas de Salida, mientras que s.nCantidad es la cantidad
+            # de PIEZAS dentro de la caja (p.ej. MONDONGO: 2 piezas/caja, nCantidad=2
+            # pero 1 caja de 10 kg) y SUM(nCantidad) inflaba el conteo. El rationale
+            # de appReferencia (SUM(nCantidad)) solo aplica a MEDIA RES, no a menudencias.
+            # Las filas ya vienen deduplicadas por source_pk (mov-ident-merc), unico
+            # por caja porque cada caja tiene su propio Movimiento_Id + Identificador_Id.
+            # s.iPeso es el peso total de la linea (= peso de la caja); SUM(iPeso)/1000
+            # da el kg neto correcto, validado contra el legacy.
+            cantidad_cajas = Decimal("1")
             peso_kg = _to_decimal(fila["peso_gr"]) / Decimal("1000")
             activa = bool(fila["activa"]) if fila["activa"] is not None else True
             eliminada = bool(fila["eliminada"]) if fila["eliminada"] is not None else False
