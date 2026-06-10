@@ -1,11 +1,11 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import axios from 'axios';
 
-import { runEtlRequest } from '@/api';
+import { runEtlRequest, getEtlEjecucionEstadoRequest, getEtlEjecucionRequest } from '@/api';
 import { PageHeader } from '@/components/PageHeader';
 import { useAuth } from '@/hooks/useAuth';
-import type { EtlRunResponse, EtlSource } from '@/types';
+import type { EtlRunResponse, EtlEjecucionDetalle, EtlSource } from '@/types';
 
 const todayIso = () => new Date().toISOString().slice(0, 10);
 
@@ -18,23 +18,57 @@ export const EtlPage = () => {
   const [source, setSource] = useState<EtlSource>('mssql');
   const [origen, setOrigen] = useState<string>('TwinsDbQuatro045');
   const [running, setRunning] = useState(false);
+  const [pollingId, setPollingId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [errorDetail, setErrorDetail] = useState<string | null>(null);
   const [result, setResult] = useState<EtlRunResponse | null>(null);
+  const [detalle, setDetalle] = useState<EtlEjecucionDetalle | null>(null);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const totales = useMemo(() => {
-    if (!result) return null;
-    return result.pasos.reduce(
+    const pasos = detalle?.tablas ?? result?.pasos ?? [];
+    if (!pasos.length) return null;
+    return pasos.reduce(
       (acc, p) => ({
         leidas: acc.leidas + p.filas_leidas,
         insertadas: acc.insertadas + p.filas_insertadas,
         actualizadas: acc.actualizadas + p.filas_actualizadas,
         descartadas: acc.descartadas + p.filas_descartadas,
-        errores: acc.errores + p.errores.length,
+        errores: acc.errores + (('errores' in p) ? (p as { errores: unknown[] }).errores.length : 0),
       }),
       { leidas: 0, insertadas: 0, actualizadas: 0, descartadas: 0, errores: 0 },
     );
-  }, [result]);
+  }, [result, detalle]);
+
+  // Polling: cuando el ETL queda en queued/running, esperamos hasta que termine
+  useEffect(() => {
+    if (pollingId === null) return;
+
+    const interval = setInterval(async () => {
+      try {
+        const estado = await getEtlEjecucionEstadoRequest(pollingId);
+        if (estado.terminada) {
+          clearInterval(interval);
+          pollRef.current = null;
+          setRunning(false);
+          setPollingId(null);
+          // Cargar detalle completo con tablas
+          const d = await getEtlEjecucionRequest(pollingId);
+          setDetalle(d);
+          setResult((prev) => prev ? { ...prev, estado: d.estado } : null);
+          if (d.estado === 'error') {
+            const obs = d.observaciones ?? 'El ETL terminó con error.';
+            setError(obs);
+          }
+        }
+      } catch {
+        // Error de red transitorio — seguimos intentando
+      }
+    }, 3000);
+
+    pollRef.current = interval;
+    return () => clearInterval(interval);
+  }, [pollingId]);
 
   if (!isAdmin) {
     return <Navigate to="/dashboard" replace />;
@@ -45,6 +79,8 @@ export const EtlPage = () => {
     setError(null);
     setErrorDetail(null);
     setResult(null);
+    setDetalle(null);
+    setPollingId(null);
 
     if (!desde || !hasta) {
       setError('Indicá fechas desde y hasta (YYYY-MM-DD).');
@@ -64,6 +100,13 @@ export const EtlPage = () => {
         source,
       });
       setResult(data);
+      // Si el backend lo encoló en background, arrancamos polling
+      if (data.estado === 'queued' || data.estado === 'running') {
+        setPollingId(data.ejecucion_id);
+        // setRunning se apaga cuando el polling detecte terminada=true
+      } else {
+        setRunning(false);
+      }
     } catch (requestError) {
       if (axios.isAxiosError(requestError)) {
         const data = requestError.response?.data as
@@ -164,8 +207,17 @@ export const EtlPage = () => {
       {result && (
         <div className="card">
           <h3>
-            Ejecución #{result.ejecucion_id} — <span>{result.estado}</span>
+            Ejecución #{result.ejecucion_id} —{' '}
+            <span>
+              {result.estado === 'queued' || result.estado === 'running'
+                ? 'Ejecutando…'
+                : result.estado}
+            </span>
           </h3>
+
+          {(result.estado === 'queued' || result.estado === 'running') && (
+            <p className="text-muted">Procesando datos, esto puede tardar varios minutos…</p>
+          )}
 
           {totales && (
             <ul className="kpi-list">
@@ -177,6 +229,7 @@ export const EtlPage = () => {
             </ul>
           )}
 
+          {(detalle?.tablas ?? result.pasos).length > 0 && (
           <table className="data-table">
             <thead>
               <tr>
@@ -190,7 +243,7 @@ export const EtlPage = () => {
               </tr>
             </thead>
             <tbody>
-              {result.pasos.map((p) => (
+              {(detalle?.tablas ?? result.pasos).map((p) => (
                 <tr key={p.tabla_destino}>
                   <td>{p.tabla_destino}</td>
                   <td>{p.filas_leidas}</td>
@@ -198,24 +251,23 @@ export const EtlPage = () => {
                   <td>{p.filas_actualizadas}</td>
                   <td>{p.filas_descartadas}</td>
                   <td>{p.duracion_ms}</td>
-                  <td>{p.errores.length}</td>
+                  <td>{'errores' in p ? (p as { errores: unknown[] }).errores.length : '-'}</td>
                 </tr>
               ))}
             </tbody>
           </table>
+          )}
 
-          {result.pasos.some((p) => p.errores.length > 0) && (
+          {detalle && detalle.errores.length > 0 && (
             <details className="card-inner">
               <summary>Detalle de errores</summary>
               <ul>
-                {result.pasos.flatMap((p) =>
-                  p.errores.map((err, idx) => (
-                    <li key={`${p.tabla_destino}-${idx}`}>
-                      <strong>{p.tabla_destino}</strong>
-                      {err.source_pk ? ` [${err.source_pk}]` : ''}: {err.mensaje}
-                    </li>
-                  )),
-                )}
+                {detalle.errores.map((err, idx) => (
+                  <li key={idx}>
+                    <strong>{err.tabla_destino}</strong>
+                    {err.source_pk ? ` [${err.source_pk}]` : ''}: {err.mensaje}
+                  </li>
+                ))}
               </ul>
             </details>
           )}

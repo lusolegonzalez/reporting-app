@@ -8,7 +8,7 @@ from flask_jwt_extended import current_user, jwt_required
 
 from app.extensions import db
 from app.models import EjecucionError, EjecucionImportacion, EjecucionTabla
-from app.services.etl.runner import EtlAlreadyRunning, run_etl
+from app.services.etl.runner import EtlAlreadyRunning, queue_etl_async, run_etl
 from app.services.etl.sources import InMemoryTwinsSource, SqlServerTwinsSource
 from app.utils.auth import admin_required
 
@@ -68,35 +68,34 @@ def run():
         return jsonify({"message": "desde/hasta requeridos (YYYY-MM-DD)."}), 400
 
     try:
-        source = _build_source(source_kind)
+        source_kind_resolved = source_kind or default_source_kind()
+        source_factory = lambda sk=source_kind_resolved: _build_source(sk)  # noqa: E731
+        # Validacion rapida del source_kind antes de encolar
+        _build_source(source_kind_resolved)
     except (RuntimeError, ValueError) as exc:
         return jsonify({"message": str(exc)}), 400
 
     try:
-        resumen = run_etl(
-            source=source,
+        ejecucion_id = queue_etl_async(
             desde=desde,
             hasta=hasta,
             origen=origen,
             created_by_user_id=getattr(current_user, "id", None),
+            source_factory=source_factory,
         )
     except EtlAlreadyRunning as exc:
         return jsonify({"message": str(exc)}), 409
     except ValueError as exc:
         return jsonify({"message": str(exc)}), 400
-    except Exception as exc:  # noqa: BLE001 — frontera HTTP, ver logger.exception
+    except Exception as exc:  # noqa: BLE001
         current_app.logger.exception(
-            "ETL run failed (origen=%s, source=%s, desde=%s, hasta=%s)",
-            origen, source_kind, desde, hasta,
+            "ETL queue failed (origen=%s, source=%s, desde=%s, hasta=%s)",
+            origen, source_kind_resolved, desde, hasta,
         )
-        try:
-            db.session.rollback()
-        except Exception:
-            current_app.logger.exception("Rollback post-error fallo")
         return (
             jsonify(
                 {
-                    "message": "No se pudo ejecutar el ETL.",
+                    "message": "No se pudo encolar el ETL.",
                     "detail": f"{type(exc).__name__}: {exc}",
                 }
             ),
@@ -106,20 +105,9 @@ def run():
     return (
         jsonify(
             {
-                "ejecucion_id": resumen.ejecucion_id,
-                "estado": resumen.estado,
-                "pasos": [
-                    {
-                        "tabla_destino": p.tabla_destino,
-                        "filas_leidas": p.filas_leidas,
-                        "filas_insertadas": p.filas_insertadas,
-                        "filas_actualizadas": p.filas_actualizadas,
-                        "filas_descartadas": p.filas_descartadas,
-                        "duracion_ms": p.duracion_ms,
-                        "errores": [{"source_pk": s, "mensaje": m} for s, m in p.errores],
-                    }
-                    for p in resumen.pasos
-                ],
+                "ejecucion_id": ejecucion_id,
+                "estado": "queued",
+                "pasos": [],
             }
         ),
         202,

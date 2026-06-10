@@ -178,13 +178,16 @@ class SalidasStep:
                 )
                 continue
 
-            # cantidad_cajas: cada fila superviviente del dedup representa exactamente
-            # una linea de Salida en Twins = una caja emitida. nCantidad NO es el numero
-            # de cajas sino el numero de piezas/unidades dentro de esa caja.
-            # La MV hace SUM(cantidad_cajas) para contar cajas (= contar filas).
+            # cantidad_cajas: corresponde a s.nCantidad de Twins (numero de cajas
+            # en esa linea de Salida). El legacy (appReferencia.py) usa
+            # SUM(s.nCantidad) AS Cajas, confirmando que nCantidad = cajas.
+            # Un mismo identificador puede tener varias Salidas del mismo producto
+            # con distintos nCantidad; cada fila del staging representa una linea
+            # de Salida ya deduplicada por source_pk.
             # s.iPeso es el peso total de la linea (no por unidad), confirmado por
             # el legacy que usa SUM(iPeso)/1000 con GROUP BY Mercaderia_Id.
-            cantidad_cajas = Decimal("1")
+            raw_cantidad = fila.get("cantidad")
+            cantidad_cajas = _to_decimal(raw_cantidad) if raw_cantidad is not None else Decimal("1")
             peso_kg = _to_decimal(fila["peso_gr"]) / Decimal("1000")
             activa = bool(fila["activa"]) if fila["activa"] is not None else True
             eliminada = bool(fila["eliminada"]) if fila["eliminada"] is not None else False

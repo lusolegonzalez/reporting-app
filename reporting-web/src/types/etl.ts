@@ -37,3 +37,23 @@ export type EtlEjecucionEstado = {
   terminada: boolean;
   observaciones?: string | null;
 };
+
+export type EtlTablaResult = {
+  tabla_destino: string;
+  filas_leidas: number;
+  filas_insertadas: number;
+  filas_actualizadas: number;
+  filas_descartadas: number;
+  duracion_ms: number;
+};
+
+export type EtlEjecucionDetalle = {
+  id: number;
+  estado: string;
+  origen: string;
+  fecha_desde: string;
+  fecha_hasta: string;
+  observaciones?: string | null;
+  tablas: EtlTablaResult[];
+  errores: { tabla_destino: string; source_pk: string | null; mensaje: string }[];
+};

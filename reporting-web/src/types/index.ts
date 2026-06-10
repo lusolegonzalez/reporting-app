@@ -18,4 +18,6 @@ export type {
   EtlStepError,
   EtlStepResult,
   EtlEjecucionEstado,
+  EtlEjecucionDetalle,
+  EtlTablaResult,
 } from './etl';
