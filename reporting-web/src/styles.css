@@ -264,6 +264,78 @@ button:disabled {
   font-size: 0.9rem;
 }
 
+.multiselect-collapsible {
+  gap: 0.4rem;
+}
+
+.multiselect-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  background: #f4f7f9;
+  border: 1px solid #c9d6df;
+  border-radius: 6px;
+  padding: 0.45rem 0.6rem;
+  font-size: 0.9rem;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.multiselect-toggle:hover {
+  background: #eaf0f4;
+}
+
+.multiselect-toggle-caret {
+  font-size: 0.75rem;
+  color: #5b6b76;
+}
+
+.multiselect-toggle-resumen {
+  color: #5b6b76;
+}
+
+.multiselect-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.multiselect-panel-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.multiselect-search {
+  flex: 1;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid #c9d6df;
+  border-radius: 6px;
+  font-size: 0.85rem;
+}
+
+.multiselect-clear {
+  background: none;
+  border: none;
+  padding: 0;
+  color: #2a6f9e;
+  font-size: 0.8rem;
+  cursor: pointer;
+  text-decoration: underline;
+  white-space: nowrap;
+}
+
+.multiselect-options {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  max-height: 180px;
+  overflow-y: auto;
+  padding-right: 0.3rem;
+}
+
 .form-actions {
   display: flex;
   gap: 0.6rem;
@@ -471,3 +543,36 @@ button:disabled {
   padding: 0.3rem 0.6rem;
 }
 
+.multiselect-collapsible {
+  width: 100%;
+  max-width: 320px;
+  min-width: 0;
+  align-self: start;
+  justify-self: start;
+}
+
+.multiselect-collapsible legend {
+  margin-bottom: 0.35rem;
+}
+
+.multiselect-toggle {
+  width: 100%;
+  justify-content: flex-start;
+  gap: 0.5rem;
+  text-align: left;
+}
+
+.multiselect-toggle-resumen {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.multiselect-panel {
+  margin-top: 0.5rem;
+}
+
+.multiselect-options {
+  max-height: 180px;
+  overflow-y: auto;
+}

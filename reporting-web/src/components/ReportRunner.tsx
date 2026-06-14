@@ -131,6 +131,106 @@ const SectionTropas = ({ tropas }: { tropas: Tropa[] }) => {
   );
 };
 
+type MultiselectFilterProps = {
+  label: string;
+  descripcion?: string | null;
+  opciones: ReportParameterOpcion[];
+  selected: string[];
+  onChange: (next: string[]) => void;
+};
+
+// Filtro multiselect colapsable: colapsado por defecto, con buscador
+// client-side y lista scrolleable. No cambia la semantica del payload
+// (sigue emitiendo el array de ids seleccionados).
+const MultiselectFilter = ({
+  label,
+  descripcion,
+  opciones,
+  selected,
+  onChange,
+}: MultiselectFilterProps) => {
+  const [abierto, setAbierto] = useState(false);
+  const [busqueda, setBusqueda] = useState('');
+
+  const opcionesFiltradas = useMemo(() => {
+    const q = busqueda.trim().toLowerCase();
+    if (!q) return opciones;
+    return opciones.filter((op) => op.label.toLowerCase().includes(q));
+  }, [opciones, busqueda]);
+
+  const resumen =
+    selected.length === 0
+      ? 'Ninguno seleccionado'
+      : `${selected.length} seleccionado${selected.length === 1 ? '' : 's'}`;
+
+  const toggleOpcion = (id: string) => {
+    const next = selected.includes(id)
+      ? selected.filter((v) => v !== id)
+      : [...selected, id];
+    onChange(next);
+  };
+
+  return (
+      <fieldset className="multiselect-fieldset multiselect-collapsible">
+        <legend>{label}</legend>
+        <button
+          type="button"
+          className="multiselect-toggle"
+          aria-expanded={abierto}
+          onClick={() => setAbierto((v) => !v)}
+        >
+          <span className="multiselect-toggle-caret">{abierto ? '▾' : '▸'}</span>
+          <span className="multiselect-toggle-resumen">{resumen}</span>
+        </button>
+        {abierto && (
+          <div className="multiselect-panel">
+            {descripcion && <small className="section-note">{descripcion}</small>}
+            {opciones.length === 0 ? (
+              <span className="section-note">Cargando opciones…</span>
+            ) : (
+              <>
+                <div className="multiselect-panel-controls">
+                  <input
+                    type="text"
+                    className="multiselect-search"
+                    placeholder="Buscar…"
+                    value={busqueda}
+                    onChange={(e) => setBusqueda(e.target.value)}
+                  />
+                  {selected.length > 0 && (
+                    <button
+                      type="button"
+                      className="multiselect-clear"
+                      onClick={() => onChange([])}
+                    >
+                      Limpiar selección
+                    </button>
+                  )}
+                </div>
+                <div className="multiselect-options">
+                  {opcionesFiltradas.length === 0 ? (
+                    <span className="section-note">Sin coincidencias.</span>
+                  ) : (
+                    opcionesFiltradas.map((op) => (
+                      <label key={op.id} className="checkbox-label">
+                        <input
+                          type="checkbox"
+                          checked={selected.includes(op.id)}
+                          onChange={() => toggleOpcion(op.id)}
+                        />
+                        {op.label}
+                      </label>
+                    ))
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+        )}
+      </fieldset>
+  );
+};
+
 const AlertaItem = ({ alerta }: { alerta: ReportAlerta }) => (
   <li className={`report-alerta report-alerta-${alerta.nivel}`}>
     <span className="report-alerta-nivel">{alerta.nivel.toUpperCase()}</span>
@@ -444,31 +544,15 @@ export const ReportRunner = ({ codigo }: ReportRunnerProps) => {
               if (p.tipo === 'multiselect') {
                 const opciones = multiselectOpciones[p.nombre] ?? [];
                 const selected = (values[p.nombre] as string[] | undefined) ?? [];
-                const toggleOpcion = (id: string) => {
-                  const next = selected.includes(id)
-                    ? selected.filter((v) => v !== id)
-                    : [...selected, id];
-                  updateValue(p.nombre, next);
-                };
                 return (
-                  <fieldset key={p.nombre} className="multiselect-fieldset">
-                    <legend>{label}</legend>
-                    {p.descripcion && <small className="section-note">{p.descripcion}</small>}
-                    {opciones.length === 0 ? (
-                      <span className="section-note">Cargando opciones…</span>
-                    ) : (
-                      opciones.map((op) => (
-                        <label key={op.id} className="checkbox-label">
-                          <input
-                            type="checkbox"
-                            checked={selected.includes(op.id)}
-                            onChange={() => toggleOpcion(op.id)}
-                          />
-                          {op.label}
-                        </label>
-                      ))
-                    )}
-                  </fieldset>
+                  <MultiselectFilter
+                    key={p.nombre}
+                    label={label}
+                    descripcion={p.descripcion}
+                    opciones={opciones}
+                    selected={selected}
+                    onChange={(next) => updateValue(p.nombre, next)}
+                  />
                 );
               }
               return (
