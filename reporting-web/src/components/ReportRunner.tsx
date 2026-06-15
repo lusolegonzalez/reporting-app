@@ -231,6 +231,44 @@ const MultiselectFilter = ({
   );
 };
 
+const ISO_DATE_INPUT_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
+const DISPLAY_DATE_RE = /^(\d{2})\/(\d{2})\/(\d{4})$/;
+
+const isoToDisplay = (iso: string): string => {
+  const m = ISO_DATE_INPUT_RE.exec(iso);
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : '';
+};
+
+type DateInputProps = { value: string; onChange: (iso: string) => void; required?: boolean };
+
+const DateInput = ({ value, onChange, required }: DateInputProps) => {
+  const [display, setDisplay] = useState(() => isoToDisplay(value));
+
+  useEffect(() => {
+    setDisplay(isoToDisplay(value));
+  }, [value]);
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const raw = e.target.value;
+    setDisplay(raw);
+    if (raw === '') { onChange(''); return; }
+    const m = DISPLAY_DATE_RE.exec(raw);
+    if (m) onChange(`${m[3]}-${m[2]}-${m[1]}`);
+  };
+
+  return (
+    <input
+      type="text"
+      inputMode="numeric"
+      placeholder="dd/mm/aaaa"
+      value={display}
+      onChange={handleChange}
+      required={required}
+      maxLength={10}
+    />
+  );
+};
+
 const AlertaItem = ({ alerta }: { alerta: ReportAlerta }) => (
   <li className={`report-alerta report-alerta-${alerta.nivel}`}>
     <span className="report-alerta-nivel">{alerta.nivel.toUpperCase()}</span>
@@ -555,11 +593,24 @@ export const ReportRunner = ({ codigo }: ReportRunnerProps) => {
                   />
                 );
               }
+              if (p.tipo === 'date') {
+                return (
+                  <label key={p.nombre}>
+                    {label}
+                    <DateInput
+                      value={String(values[p.nombre] ?? '')}
+                      onChange={(v) => updateValue(p.nombre, v)}
+                      required={p.requerido}
+                    />
+                    {p.descripcion && <small className="section-note">{p.descripcion}</small>}
+                  </label>
+                );
+              }
               return (
                 <label key={p.nombre}>
                   {label}
                   <input
-                    type={p.tipo === 'date' ? 'date' : p.tipo === 'int' ? 'number' : 'text'}
+                    type={p.tipo === 'int' ? 'number' : 'text'}
                     value={String(values[p.nombre] ?? '')}
                     onChange={(e) => updateValue(p.nombre, e.target.value)}
                   />

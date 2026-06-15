@@ -63,7 +63,7 @@ def _get_requested_date() -> date:"""Toma la fecha del query string o usa el dí
 
 parsed = _parse_iso_date(raw_date)
 if parsed is None:
-    raise ValueError("Fecha inválida (use YYYY-MM-DD)")
+    raise ValueError("Fecha inválida (use DD-MM-YYYY)")
 return parsed
 
 def _get_quatro045_connection() -> pyodbc.Connection:"""Abre una conexión nueva para evitar problemas de pooling compartido."""pyodbc.pooling = Falsereturn pyodbc.connect(QUATRO045_CONN_STR, timeout=8)

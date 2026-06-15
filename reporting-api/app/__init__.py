@@ -34,6 +34,36 @@ def _configure_logging(app: Flask) -> None:
     logging.getLogger("app").setLevel(level)
 
 
+def _cleanup_stale_etl_executions(app: Flask) -> None:
+    """Mark executions left in queued/running state as error on process start.
+
+    These are left behind when the server is restarted while an ETL thread
+    was active. Without cleanup, find_active_execution() keeps returning them
+    and the frontend polls forever.
+    """
+    from app.extensions import db
+    from app.models import EjecucionImportacion
+
+    with app.app_context():
+        try:
+            stale = (
+                db.session.query(EjecucionImportacion)
+                .filter(EjecucionImportacion.estado.in_(("queued", "running")))
+                .all()
+            )
+            if stale:
+                for ej in stale:
+                    ej.estado = "error"
+                    ej.observaciones = "proceso_interrumpido: el servidor se reinicio durante la ejecucion."
+                db.session.commit()
+                app.logger.warning(
+                    "[ETL-startup] %d ejecucion(es) interrumpidas marcadas como error.",
+                    len(stale),
+                )
+        except Exception:
+            app.logger.exception("[ETL-startup] no se pudo limpiar ejecuciones interrumpidas.")
+
+
 def create_app(config_name: str | None = None) -> Flask:
     app = Flask(__name__)
 
@@ -50,5 +80,7 @@ def create_app(config_name: str | None = None) -> Flask:
     app.register_blueprint(reports_bp, url_prefix="/api/reports")
     app.register_blueprint(etl_bp, url_prefix="/api/etl")
     app.register_blueprint(audit_bp, url_prefix="/api/audit")
+
+    _cleanup_stale_etl_executions(app)
 
     return app

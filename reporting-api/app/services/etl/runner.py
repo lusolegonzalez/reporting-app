@@ -1,9 +1,9 @@
 """Orquestador del proceso ETL.
 
-Crea una EjecucionImportacion, toma un advisory lock para evitar
-concurrencia, ejecuta los steps registrados, persiste contadores y
-errores por tabla destino, y al final refresca las vistas
-materializadas de reporting.
+Crea una EjecucionImportacion, usa un threading.Lock para evitar
+concurrencia dentro del mismo proceso, ejecuta los steps registrados,
+persiste contadores y errores por tabla destino, y al final refresca
+las vistas materializadas de reporting.
 """
 from __future__ import annotations
 
@@ -14,7 +14,6 @@ from datetime import date, datetime, timezone
 from typing import Callable
 
 from flask import Flask, current_app
-from sqlalchemy import text
 
 from app.extensions import db
 from app.models import EjecucionError, EjecucionImportacion, EjecucionTabla
@@ -30,8 +29,11 @@ from app.services.etl.steps.tropas import TropasStep
 
 logger = logging.getLogger(__name__)
 
-# Clave arbitraria para pg_try_advisory_lock; cualquier int de 64 bits sirve.
-_ETL_ADVISORY_LOCK_KEY = 7263514091
+# pg_try_advisory_lock was replaced with this threading.Lock because SQLAlchemy
+# returns the connection to the pool after each commit(), so the lock was
+# acquired on one connection but released on a different one — leaving the
+# advisory lock permanently held on a pooled connection until process restart.
+_ETL_LOCK = threading.Lock()
 
 
 @dataclass
@@ -91,12 +93,7 @@ def run_etl(
         db.session.commit()
     ejecucion_id = int(ejecucion.id)
 
-    lock_acquired = bool(
-        db.session.execute(
-            text("SELECT pg_try_advisory_lock(:k)"),
-            {"k": _ETL_ADVISORY_LOCK_KEY},
-        ).scalar()
-    )
+    lock_acquired = _ETL_LOCK.acquire(blocking=False)
     if not lock_acquired:
         ejecucion.estado = "error"
         ejecucion.observaciones = "Otra corrida ETL ya esta en curso."
@@ -169,22 +166,21 @@ def run_etl(
                 db.session.commit()
 
     finally:
-        db.session.execute(
-            text("SELECT pg_advisory_unlock(:k)"),
-            {"k": _ETL_ADVISORY_LOCK_KEY},
-        )
-        ejecucion.estado = estado_final
-        if step_fatal_msg and (
-            not ejecucion.observaciones
-            or "Pasos ejecutados" in (ejecucion.observaciones or "")
-        ):
-            ejecucion.observaciones = f"step_fatal: {step_fatal_msg}"
-        else:
-            ejecucion.observaciones = (
-                ejecucion.observaciones
-                or f"Pasos ejecutados: {len(resultados)} | Finalizada {datetime.now(timezone.utc).isoformat()}"
-            )
-        db.session.commit()
+        try:
+            ejecucion.estado = estado_final
+            if step_fatal_msg and (
+                not ejecucion.observaciones
+                or "Pasos ejecutados" in (ejecucion.observaciones or "")
+            ):
+                ejecucion.observaciones = f"step_fatal: {step_fatal_msg}"
+            else:
+                ejecucion.observaciones = (
+                    ejecucion.observaciones
+                    or f"Pasos ejecutados: {len(resultados)} | Finalizada {datetime.now(timezone.utc).isoformat()}"
+                )
+            db.session.commit()
+        finally:
+            _ETL_LOCK.release()
 
     return EjecucionResumen(
         ejecucion_id=ejecucion_id,
