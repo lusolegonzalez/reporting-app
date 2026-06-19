@@ -491,10 +491,11 @@ def _pdf_section(
 def _export_pdf_ddjj_menudencias(response: ReportResponse) -> bytes:
     """Layout DDJJ_MENUDENCIAS: retrato A4, encabezado IFSSA, sin títulos de bloque."""
     from reportlab.lib import colors
-    from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
+    from reportlab.lib.enums import TA_CENTER, TA_RIGHT
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
     from reportlab.lib.units import cm
+    from reportlab.pdfgen import canvas as pdf_canvas
     from reportlab.platypus import (
         HRFlowable,
         Image,
@@ -505,15 +506,59 @@ def _export_pdf_ddjj_menudencias(response: ReportResponse) -> bytes:
         TableStyle,
     )
 
+    # ── Footer canvas: "Página X de Y" + área de firma ───────────────────────
+    class _NumberedCanvas(pdf_canvas.Canvas):
+        def __init__(self, *args, **kwargs):
+            pdf_canvas.Canvas.__init__(self, *args, **kwargs)
+            self._saved_page_states: list[dict] = []
+
+        def showPage(self):
+            self._saved_page_states.append(dict(self.__dict__))
+            self._startPage()
+
+        def save(self):
+            num_pages = len(self._saved_page_states)
+            for i, state in enumerate(self._saved_page_states, 1):
+                self.__dict__.update(state)
+                self._draw_footer(i, num_pages)
+                pdf_canvas.Canvas.showPage(self)
+            pdf_canvas.Canvas.save(self)
+
+        def _draw_footer(self, page_num: int, total_pages: int) -> None:
+            pw, _ = self._pagesize
+            is_last = page_num == total_pages
+            self.saveState()
+
+            # ── Línea separadora (todas las páginas) ──────────────────────────
+            self.setStrokeColor(colors.HexColor("#1F4E79"))
+            self.setLineWidth(0.4)
+            self.line(1.5 * cm, 1.6 * cm, pw - 1.5 * cm, 1.6 * cm)
+
+            # ── Firma (última página únicamente) ──────────────────────────────
+            if is_last:
+                self.setFont("Helvetica", 7)
+                self.setFillColor(colors.HexColor("#555555"))
+                self.drawString(1.5 * cm, 1.15 * cm, "Firma y sello aclaratorio Responsable de la empresa:")
+                self.setStrokeColor(colors.HexColor("#555555"))
+                self.setLineWidth(0.4)
+                self.line(1.5 * cm, 0.95 * cm, 9.0 * cm, 0.95 * cm)
+
+            # ── Numeración de página (todas las páginas) ──────────────────────
+            self.setFont("Helvetica", 7)
+            self.setFillColor(colors.HexColor("#555555"))
+            self.drawRightString(pw - 1.5 * cm, 0.5 * cm, f"Página {page_num} de {total_pages}")
+
+            self.restoreState()
+
     buf = io.BytesIO()
-    # Retrato A4, márgenes compactos para caber en una página
+    # Retrato A4; bottomMargin ampliado para el footer
     doc = SimpleDocTemplate(
         buf,
         pagesize=A4,
         rightMargin=1.5 * cm,
         leftMargin=1.5 * cm,
         topMargin=1.5 * cm,
-        bottomMargin=1.5 * cm,
+        bottomMargin=2.0 * cm,
         title="DECLARACIÓN JURADA PRODUCCIÓN OBTENIDA MENUDENCIAS",
     )
     usable_w = 18 * cm  # 21cm - 2*1.5cm
@@ -524,29 +569,37 @@ def _export_pdf_ddjj_menudencias(response: ReportResponse) -> bytes:
     style_doc_title = ParagraphStyle(
         "DDJJTitle",
         parent=style_normal,
-        fontSize=11,
+        fontSize=10,
         fontName="Helvetica-Bold",
         alignment=TA_CENTER,
         textColor=colors.HexColor("#1F4E79"),
-        leading=14,
+        leading=13,
     )
     style_meta = ParagraphStyle(
         "DDJJMeta",
         parent=style_normal,
-        fontSize=8,
+        fontSize=7,
         alignment=TA_RIGHT,
-        leading=11,
+        leading=10,
     )
     style_body = ParagraphStyle(
         "DDJJBody",
         parent=style_normal,
-        fontSize=9,
-        leading=12,
+        fontSize=8,
+        leading=11,
+    )
+    style_date_header = ParagraphStyle(
+        "DDJJDateHeader",
+        parent=style_normal,
+        fontSize=8,
+        fontName="Helvetica-Bold",
+        textColor=colors.white,
+        leading=11,
     )
     style_small = ParagraphStyle(
         "DDJJSmall",
         parent=style_normal,
-        fontSize=8,
+        fontSize=7,
         textColor=colors.grey,
     )
     style_section_lbl = ParagraphStyle(
@@ -555,8 +608,8 @@ def _export_pdf_ddjj_menudencias(response: ReportResponse) -> bytes:
         fontSize=8,
         fontName="Helvetica-Bold",
         textColor=colors.HexColor("#1F4E79"),
-        spaceBefore=6,
-        spaceAfter=2,
+        spaceBefore=4,
+        spaceAfter=1,
     )
 
     elements: list[Any] = []
@@ -596,9 +649,9 @@ def _export_pdf_ddjj_menudencias(response: ReportResponse) -> bytes:
         ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
     ]))
     elements.append(header_tbl)
-    elements.append(Spacer(1, 0.2 * cm))
+    elements.append(Spacer(1, 0.15 * cm))
     elements.append(HRFlowable(width="100%", thickness=1.0, color=colors.HexColor("#1F4E79")))
-    elements.append(Spacer(1, 0.25 * cm))
+    elements.append(Spacer(1, 0.2 * cm))
 
     # ── Tabla de fechas ───────────────────────────────────────────────────────
     p = response.parametros
@@ -609,25 +662,27 @@ def _export_pdf_ddjj_menudencias(response: ReportResponse) -> bytes:
         return str(val) if val else "-"
 
     date_data = [
-        [Paragraph("<b>Fecha de</b>", style_body), Paragraph("<b>Desde</b>", style_body), Paragraph("<b>Hasta</b>", style_body)],
+        [
+            Paragraph("Fecha de", style_date_header),
+            Paragraph("Desde", style_date_header),
+            Paragraph("Hasta", style_date_header),
+        ],
         ["Faena", _fd(p.get("fecha_faena_desde")), _fd(p.get("fecha_faena_hasta"))],
         ["Producción", _fd(p.get("fecha_produccion_desde")), _fd(p.get("fecha_produccion_hasta"))],
     ]
     date_tbl = Table(date_data, colWidths=[3.5 * cm, 3.0 * cm, 3.0 * cm], hAlign="LEFT")
     date_tbl.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1F4E79")),
-        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
         ("FONTSIZE", (0, 0), (-1, -1), 8),
         ("GRID", (0, 0), (-1, -1), 0.3, colors.HexColor("#CCCCCC")),
         ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#EEF2F8")]),
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ("TOPPADDING", (0, 0), (-1, -1), 3),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+        ("TOPPADDING", (0, 0), (-1, -1), 2),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
         ("ALIGN", (1, 0), (-1, -1), "CENTER"),
     ]))
     elements.append(date_tbl)
-    elements.append(Spacer(1, 0.25 * cm))
+    elements.append(Spacer(1, 0.2 * cm))
 
     # ── Cabezas faenadas y tropas ─────────────────────────────────────────────
     cabezas_val = None
@@ -651,7 +706,7 @@ def _export_pdf_ddjj_menudencias(response: ReportResponse) -> bytes:
         numeros = ", ".join(str(t.get("numero_tropa", "")) for t in tropas_list)
         elements.append(Paragraph(f"<b>Tropas:</b> {numeros}", style_body))
 
-    elements.append(Spacer(1, 0.25 * cm))
+    elements.append(Spacer(1, 0.2 * cm))
 
     # ── Tablas de datos (sin títulos de bloque) ───────────────────────────────
     _SECCION_LABELS = {
@@ -664,7 +719,7 @@ def _export_pdf_ddjj_menudencias(response: ReportResponse) -> bytes:
         elements.append(Paragraph(label, style_section_lbl))
         elements.extend(_pdf_section_ddjj(sec, style_body, style_small, usable_w))
 
-    doc.build(elements)
+    doc.build(elements, canvasmaker=_NumberedCanvas)
     return buf.getvalue()
 
 
@@ -699,19 +754,22 @@ def _pdf_section_ddjj(
     else:
         col_widths = [usable_w / n] * n
 
-    def _fmt(val: Any, tipo: str) -> str:
+    def _fmt(val: Any, tipo: str, col_key: str = "") -> str:
         if tipo == "number":
             if val is None:
                 return "-"
             try:
-                return f"{float(val):,.3f}".replace(",", "X").replace(".", ",").replace("X", ".")
+                f_val = float(val)
+                if col_key == "cajas":
+                    return str(int(round(f_val)))
+                return f"{f_val:,.3f}".replace(",", "X").replace(".", ",").replace("X", ".")
             except (TypeError, ValueError):
                 return str(val)
         return "-" if val is None else str(val)
 
     table_data = [headers]
     for fila in seccion.filas:
-        table_data.append([_fmt(fila.get(k), t) for k, t in zip(col_keys, col_types)])
+        table_data.append([_fmt(fila.get(k), t, k) for k, t in zip(col_keys, col_types)])
 
     totales = seccion.totales or {}
     totales_en_cols = {k: v for k, v in totales.items() if k in col_keys and k != "tropas"}
@@ -721,7 +779,7 @@ def _pdf_section_ddjj(
         total_row[0] = "TOTALES"
         for i, key in enumerate(col_keys):
             if key in totales_en_cols:
-                total_row[i] = _fmt(totales_en_cols[key], col_types[i])
+                total_row[i] = _fmt(totales_en_cols[key], col_types[i], key)
         table_data.append(total_row)
 
     tbl = Table(table_data, colWidths=col_widths, repeatRows=1, hAlign="LEFT")
