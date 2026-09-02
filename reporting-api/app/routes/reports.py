@@ -12,6 +12,7 @@ from app.services.etl.availability import (
     find_active_execution,
     find_missing_ranges,
 )
+from app.services.etl.catalog_sync import sync_procesos_if_empty
 from app.services.etl.runner import queue_etl_async
 from app.services.reports import (
     ReportNotFoundError,
@@ -328,6 +329,14 @@ def get_report_metadata(codigo: str):
 # Extender aqui cuando otro reporte necesite un multiselect propio.
 
 def _catalogo_excluir_procesos() -> list[dict]:
+    if ProcesoProductivo.query.count() == 0:
+        try:
+            sync_procesos_if_empty()
+        except Exception:
+            logger.warning(
+                "[catalogo] No se pudo sincronizar procesos productivos.", exc_info=True
+            )
+
     items = (
         ProcesoProductivo.query
         .filter_by(vigente=True)
@@ -406,6 +415,12 @@ def run_report(codigo: str):
     if formato not in _FORMATOS_VALIDOS:
         return jsonify({"message": f"Formato inválido: {formato!r}."}), 400
 
+    # `forzar`: reimporta el rango requerido aunque la cobertura ya lo marque
+    # cargado. Sirve para reparar fechas importadas con datos incompletos que
+    # la fuente completo despues (una fecha importada una sola vez queda
+    # "cubierta para siempre" segun availability.find_missing_ranges).
+    forzar = bool(payload.get("forzar"))
+
     can_export = _user_can_export(current_user, report)
     if formato in _FORMATOS_EXPORTACION and not can_export:
         return (
@@ -425,7 +440,7 @@ def run_report(codigo: str):
     # ── ETL bajo demanda ───────────────────────────────────────────────
     # Si el reporte declara un rango requerido en la base intermedia, validamos
     # cobertura. Si falta data, disparamos ETL asincronico y respondemos 202.
-    etl_status = _ensure_etl_coverage(definition, report_request)
+    etl_status = _ensure_etl_coverage(definition, report_request, forzar=forzar)
     if etl_status is not None:
         logger.info(
             "[REPORT] codigo=%s -> 202 %s ejecucion_id=%s reusada=%s rango_faltante=%s",
@@ -491,12 +506,16 @@ def run_report(codigo: str):
     )
 
 
-def _ensure_etl_coverage(definition, report_request):
+def _ensure_etl_coverage(definition, report_request, *, forzar: bool = False):
     """Devuelve None si la base intermedia ya tiene el rango requerido.
 
     Si el reporte declara `loaded_range_requerido` y hay huecos, dispara ETL
     asincronico (o reutiliza uno encolado/en curso) y devuelve un payload
     estructurado describiendo el estado, para que el endpoint responda 202.
+
+    Con `forzar=True` se reimporta el rango requerido completo aunque la
+    cobertura ya lo marque cargado (repara fechas importadas con datos
+    incompletos). El resto del flujo (anti-duplicacion, encolado) no cambia.
     """
     fn = getattr(definition, "loaded_range_requerido", None)
     if not callable(fn):
@@ -522,7 +541,7 @@ def _ensure_etl_coverage(definition, report_request):
     )
 
     gaps = find_missing_ranges(desde, hasta, origen)
-    if not gaps:
+    if not gaps and not forzar:
         logger.info(
             "[REPORT] coverage available=true origen=%s desde=%s hasta=%s "
             "(rango cubierto por ejecuciones ok/partial existentes)",
@@ -530,16 +549,26 @@ def _ensure_etl_coverage(definition, report_request):
         )
         return None  # todo el rango ya esta cargado
 
-    gaps_str = ",".join(f"{g.desde}..{g.hasta}" for g in gaps)
-    logger.info(
-        "[REPORT] coverage available=false origen=%s desde=%s hasta=%s huecos=[%s]",
-        origen, desde, hasta, gaps_str,
-    )
+    if forzar:
+        # Reimporte forzado: cargamos el rango requerido completo, ignorando
+        # la cobertura previa. La upsert de core.* es idempotente (self-heal).
+        g_desde, g_hasta = desde, hasta
+        logger.info(
+            "[REPORT] coverage forzada origen=%s desde=%s hasta=%s "
+            "(reimporte solicitado; se ignora cobertura previa)",
+            origen, g_desde, g_hasta,
+        )
+    else:
+        gaps_str = ",".join(f"{g.desde}..{g.hasta}" for g in gaps)
+        logger.info(
+            "[REPORT] coverage available=false origen=%s desde=%s hasta=%s huecos=[%s]",
+            origen, desde, hasta, gaps_str,
+        )
 
-    # Rango faltante a cargar: tomamos el envoltorio [min_desde, max_hasta]
-    # para hacer una unica corrida (mas simple y consistente con el lock).
-    g_desde = min(g.desde for g in gaps)
-    g_hasta = max(g.hasta for g in gaps)
+        # Rango faltante a cargar: tomamos el envoltorio [min_desde, max_hasta]
+        # para hacer una unica corrida (mas simple y consistente con el lock).
+        g_desde = min(g.desde for g in gaps)
+        g_hasta = max(g.hasta for g in gaps)
 
     # Anti-duplicacion: reusar ejecucion activa que ya cubra el faltante
     activa = find_active_execution(g_desde, g_hasta, origen)

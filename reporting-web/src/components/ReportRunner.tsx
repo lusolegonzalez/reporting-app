@@ -170,6 +170,19 @@ const MultiselectFilter = ({
     onChange(next);
   };
 
+  const todosVisiblesSeleccionados =
+    opcionesFiltradas.length > 0 &&
+    opcionesFiltradas.every((op) => selected.includes(op.id));
+
+  const toggleTodos = () => {
+    const ids = opcionesFiltradas.map((op) => op.id);
+    if (todosVisiblesSeleccionados) {
+      onChange(selected.filter((v) => !ids.includes(v)));
+    } else {
+      onChange(Array.from(new Set([...selected, ...ids])));
+    }
+  };
+
   return (
       <fieldset className="multiselect-fieldset multiselect-collapsible">
         <legend>{label}</legend>
@@ -197,16 +210,25 @@ const MultiselectFilter = ({
                     value={busqueda}
                     onChange={(e) => setBusqueda(e.target.value)}
                   />
-                  {selected.length > 0 && (
+                  {opcionesFiltradas.length > 0 && (
                     <button
                       type="button"
                       className="multiselect-clear"
-                      onClick={() => onChange([])}
+                      onClick={toggleTodos}
                     >
-                      Limpiar selección
+                      {todosVisiblesSeleccionados ? 'Ninguno' : 'Todos'}
                     </button>
                   )}
                 </div>
+                {selected.length > 0 && (
+                  <button
+                    type="button"
+                    className="multiselect-clear"
+                    onClick={() => onChange([])}
+                  >
+                    Limpiar selección
+                  </button>
+                )}
                 <div className="multiselect-options">
                   {opcionesFiltradas.length === 0 ? (
                     <span className="section-note">Sin coincidencias.</span>

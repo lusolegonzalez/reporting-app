@@ -297,6 +297,23 @@ class SqlServerTwinsSource:
         return rows
 
     def fetch_faena(self, desde: date, hasta: date) -> Iterable[dict[str, Any]]:
+        """Medias reses faenadas en [desde, hasta], una fila por Identificador_Id.
+
+        `df.dFechaFaena` es la UNICA autoridad sobre `fecha_faena`. Si no hay
+        filas de DatosFrigo activas en la ventana, no hubo faena en la ventana
+        y se devuelve vacio.
+
+        Existia un fallback que, ante 0 filas de DatosFrigo, resolvia la faena
+        por `mv.dFecha` (Movimientos con bEntrada=0). Estaba mal: `mv.dFecha` es
+        la fecha de PRODUCCION, no la de faena. Como `core.faena` tiene unique
+        global sobre `twins_faena_id` (= Identificador_Id) y el upsert pisa
+        `fecha_faena`, ese fallback no duplicaba filas: las MOVIA de dia.
+        Caso verificado: el 2026-07-25 no hubo faena, el fallback devolvia 53
+        identificadores fechados 2026-07-25, de los cuales 46 eran faena real
+        del 2026-07-24 (mas 6 del 07-20 y 1 del 07-22). Esos 46 se iban del
+        24/07, que pasaba de 786 a 740 medias -> la DDJJ informaba 370 cabezas
+        en lugar de 393. Ademas inventaba cabezas en dias sin faena.
+        """
         hasta_excl = hasta + timedelta(days=1)
 
         # Diagnóstico: máximo disponible en ambas columnas de fecha relevantes.
@@ -318,7 +335,7 @@ class SqlServerTwinsSource:
                 desde, hasta, diag[0].get("max_fae"), diag[0].get("max_mv"),
             )
 
-        # Path primario: Faena + DatosFrigo, filtrado por dFechaFaena.
+        # Unico path: Faena + DatosFrigo, filtrado por dFechaFaena.
         # Sigue exactamente la lógica de _fetch_faena_totals en appReferencia.py.
         sql_datosfigo = """
             SELECT
@@ -339,38 +356,15 @@ class SqlServerTwinsSource:
         """
         rows = self._query(sql_datosfigo, (desde, hasta_excl))
         _log_result("fetch_faena[df.dFechaFaena]", len(rows), desde, hasta)
-        if rows:
-            return rows
-
-        # Fallback: usa mv.dFecha como eje (Movimientos bEntrada=0 + Faena LEFT JOIN).
-        # Cubre el caso en que DatosFrigo no tiene registros en el rango solicitado
-        # pero Movimientos/Faena sí, situación que ocurre cuando dFechaFaena y dFecha
-        # no caen en la misma ventana temporal.
-        logger.warning(
-            "[ETL-source] fetch_faena | df.dFechaFaena dio 0 filas para %s\u2192%s."
-            " Probando fallback por mv.dFecha.",
-            desde, hasta,
-        )
-        sql_mv = """
-            SELECT DISTINCT
-                fae.Identificador_Id            AS twins_faena_id,
-                fae.Identificador_Id            AS twins_identificador_id,
-                fae.ListaDetalle_Id             AS twins_lista_detalle_id,
-                NULL                            AS twins_operario_id,
-                CONVERT(date, mv.dFecha)        AS fecha_faena,
-                1                               AS cabezas,
-                NULL                            AS kg_estimados,
-                fae.bActivo                     AS activa
-            FROM movimientos.Movimientos mv WITH (NOLOCK)
-            JOIN movimientos.Faena fae WITH (NOLOCK)
-              ON fae.Identificador_Id = mv.Identificador_Id
-             AND fae.bActivo = 1
-            WHERE mv.bEntrada = 0
-              AND mv.dFecha >= ? AND mv.dFecha < ?
-        """
-        rows_mv = self._query(sql_mv, (desde, hasta_excl))
-        _log_result("fetch_faena[mv.dFecha]", len(rows_mv), desde, hasta)
-        return rows_mv
+        if not rows:
+            # Dia sin faena. Se avisa para que quede visible en el log en vez de
+            # pasar en silencio, pero NO se busca la fecha por otra via.
+            logger.warning(
+                "[ETL-source] fetch_faena | sin filas de DatosFrigo activas para"
+                " %s→%s: no hubo faena en la ventana.",
+                desde, hasta,
+            )
+        return rows
 
     def fetch_salidas(self, desde: date, hasta: date) -> Iterable[dict[str, Any]]:
         hasta_excl = hasta + timedelta(days=1)

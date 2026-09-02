@@ -535,17 +535,11 @@ def _export_pdf_ddjj_menudencias(response: ReportResponse) -> bytes:
             self.line(1.5 * cm, 1.6 * cm, pw - 1.5 * cm, 1.6 * cm)
 
             # ── Firma (última página únicamente) ──────────────────────────────
-            if is_last:
-                self.setFont("Helvetica", 7)
-                self.setFillColor(colors.HexColor("#555555"))
-                self.drawString(1.5 * cm, 1.15 * cm, "Firma y sello aclaratorio Responsable de la empresa:")
-                self.setStrokeColor(colors.HexColor("#555555"))
-                self.setLineWidth(0.4)
-                self.line(1.5 * cm, 0.95 * cm, 9.0 * cm, 0.95 * cm)
-
             # ── Numeración de página (todas las páginas) ──────────────────────
             self.setFont("Helvetica", 7)
             self.setFillColor(colors.HexColor("#555555"))
+            if is_last:
+                self.drawString(1.5 * cm, 0.5 * cm, "Firma y sello aclaratorio Responsable de la empresa")
             self.drawRightString(pw - 1.5 * cm, 0.5 * cm, f"Página {page_num} de {total_pages}")
 
             self.restoreState()

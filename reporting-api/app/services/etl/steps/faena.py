@@ -1,6 +1,7 @@
 """Step ETL: faena y movimientos."""
 from __future__ import annotations
 
+import logging
 import time
 from datetime import date, datetime, timezone
 from typing import Any
@@ -12,6 +13,22 @@ from app.extensions import db
 from app.models import Faena, StgTwinsFaena, StgTwinsMovimiento
 from app.services.etl.source import TwinsSource
 from app.services.etl.steps.base import StepResult
+
+logger = logging.getLogger(__name__)
+
+# Topes para no inundar etl.ejecucion_error / el log ante un dia patologico.
+_MAX_ERRORES_DUPLICADOS = 20
+_MAX_MUESTRA_RELOCALIZACION = 10
+
+
+def _clave_material(fila: dict[str, Any]) -> tuple[Any, ...]:
+    """Datos que, si difieren entre dos filas de la misma media, la hacen ambigua."""
+    return (
+        fila["fecha_faena"],
+        fila["twins_lista_detalle_id"],
+        fila["cabezas"],
+        fila["activa"],
+    )
 
 
 class FaenaStep:
@@ -116,8 +133,15 @@ class FaenaStep:
             ).all()
             operario_por_twins = {int(r[1]): int(r[0]) for r in rows}
 
-        ahora = datetime.now(timezone.utc)
-        faena_ids_unicos: set[int] = set()
+        # Dedup por twins_faena_id (= Identificador_Id). El join Faena x DatosFrigo
+        # puede devolver la misma media mas de una vez, asi que duplicar no es
+        # sintoma de nada por si solo: se retiene la primera fila y solo importa
+        # si la repetida trae datos distintos. Antes este descarte era mudo (ni
+        # contador ni log), por eso una corrida con perdida terminaba en 'ok'.
+        retenidos: dict[int, dict[str, Any]] = {}
+        duplicados_benignos = 0
+        conflictos: list[tuple[str | None, str]] = []
+
         for fila in filas:
             fid = fila["twins_faena_id"]
             ident = fila["twins_identificador_id"]
@@ -126,9 +150,88 @@ class FaenaStep:
                 result.filas_descartadas += 1
                 result.errores.append((fila["source_pk"], "campos minimos vacios"))
                 continue
-            if int(fid) in faena_ids_unicos:
+
+            fid = int(fid)
+            previo = retenidos.get(fid)
+            if previo is None:
+                retenidos[fid] = fila
                 continue
-            faena_ids_unicos.add(int(fid))
+
+            result.filas_descartadas += 1
+            if _clave_material(previo) == _clave_material(fila):
+                duplicados_benignos += 1
+            else:
+                conflictos.append(
+                    (
+                        fila["source_pk"],
+                        "duplicado conflictivo: retenido "
+                        f"{_clave_material(previo)} vs descartado {_clave_material(fila)}",
+                    )
+                )
+
+        # Duplicados benignos: contador + una linea resumida. Nunca van a
+        # result.errores, porque eso degradaria a 'partial' una corrida sana.
+        if duplicados_benignos:
+            logger.info(
+                "[ETL-faena] %d duplicados benignos descartados sobre %d filas leidas"
+                " (misma media, mismos datos); no afectan el estado de la corrida.",
+                duplicados_benignos, len(filas),
+            )
+
+        # Duplicados conflictivos: la fila que se retiene es arbitraria (gana la
+        # primera del cursor), asi que la corrida SI debe quedar 'partial'.
+        if conflictos:
+            logger.warning(
+                "[ETL-faena] %d duplicados CONFLICTIVOS: la misma media llega con"
+                " fecha_faena o datos distintos y se retiene una arbitrariamente.",
+                len(conflictos),
+            )
+            result.errores.extend(conflictos[:_MAX_ERRORES_DUPLICADOS])
+            if len(conflictos) > _MAX_ERRORES_DUPLICADOS:
+                result.errores.append(
+                    (
+                        None,
+                        f"duplicados conflictivos: {len(conflictos)} en total,"
+                        f" se registran los primeros {_MAX_ERRORES_DUPLICADOS}",
+                    )
+                )
+
+        # Deteccion de relocalizacion: medias que ya existen en core con OTRA
+        # fecha_faena. El upsert las va a mover (unique global sobre
+        # twins_faena_id + EXCLUDED.fecha_faena). Es legitimo si la fuente
+        # corrigio la fecha, por eso solo se loguea y no se marca error. Sirve
+        # para que un caso como el del 2026-07-24 (46 medias movidas al 25/07
+        # por el viejo fallback de mv.dFecha) quede visible en el log.
+        if retenidos:
+            existentes = db.session.execute(
+                text(
+                    "SELECT twins_faena_id, fecha_faena FROM core.faena "
+                    "WHERE twins_faena_id = ANY(:ids)"
+                ),
+                {"ids": list(retenidos.keys())},
+            ).all()
+            reubicadas = [
+                (int(r[0]), r[1], retenidos[int(r[0])]["fecha_faena"])
+                for r in existentes
+                if r[1] != retenidos[int(r[0])]["fecha_faena"]
+            ]
+            if reubicadas:
+                muestra = ", ".join(
+                    f"{fid}:{antes}->{despues}"
+                    for fid, antes, despues in reubicadas[:_MAX_MUESTRA_RELOCALIZACION]
+                )
+                logger.warning(
+                    "[ETL-faena] %d medias cambian de fecha_faena en este upsert."
+                    " Es esperable si la fuente corrigio la fecha; si se repite,"
+                    " revisar el origen. Muestra: %s",
+                    len(reubicadas), muestra,
+                )
+
+        ahora = datetime.now(timezone.utc)
+        for fila in retenidos.values():
+            fid = int(fila["twins_faena_id"])
+            ident = fila["twins_identificador_id"]
+            fecha = fila["fecha_faena"]
 
             ld = fila["twins_lista_detalle_id"]
             subtropa_id = subtropa_por_ld.get(int(ld)) if ld is not None else None
