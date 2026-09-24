@@ -151,9 +151,3 @@ Después de correr migraciones, crear rol y usuario admin inicial:
 ```bash
 flask --app run.py seed-initial-auth
 ```
-
-Credenciales del usuario de prueba:
-
-- email: `admin@reporting.local`
-- password: `Admin123*`
-
